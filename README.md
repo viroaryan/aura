@@ -1,8 +1,8 @@
 # 🚀 The Aura Programming Language
-[![Language](https://img.shields.github.io/badge/Language-Aura-blueviolet)](https://github.com/)
-[![License](https://img.shields.github.io/badge/License-MIT-blue)](LICENSE)
-[![Compiler](https://img.shields.github.io/badge/Compiler-C%2B%2B17-orange)](aurac.cpp)
-[![Platform](https://img.shields.github.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20Android-green)](#)
+[![Language](https://img.shields.io/badge/Language-Aura-blueviolet)](https://github.com/)
+[![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
+[![Compiler](https://img.shields.io/badge/Compiler-C%2B%2B17-orange)](aurac.cpp)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20Android-green)](#)
 
 Aura is a high-performance, developer-friendly, compiled programming language designed to combine **Python's ease of readability** with **C++'s execution speed**. 
 
