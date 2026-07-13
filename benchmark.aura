@@ -1,0 +1,18 @@
+// Aura Speed Benchmark Test
+// Running 100 Million Iterations in a Loop
+
+fn main() {
+    print("Aura Benchmark: Starting 2,000,000,000 iterations...")
+    
+    var i = 0
+    var count = 0
+    
+    while i < 2000000000 {
+        count = count + 1
+        i = i + 1
+    }
+    
+    print("Aura Benchmark Finished!")
+    print("Final Count:")
+    print(count)
+}

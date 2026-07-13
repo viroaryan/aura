@@ -1,0 +1,26 @@
+// Aura Programming Language File System & Input Verification Test
+
+fn main() {
+    print("=== Aura File I/O & Input Verification Test ===")
+    
+    // 1. Write to file
+    var filename = "aura_temp.txt"
+    print("Writing content to file: " + filename)
+    writeFile(filename, "Aura Native File I/O works!\nLine 1: High performance compiled output.\n")
+    
+    // 2. Append to file
+    print("Appending content to file...")
+    appendFile(filename, "Line 2: Appended natively from standard library.\n")
+    
+    // 3. Read from file
+    print("Reading content from file:")
+    var fileContent = readFile(filename)
+    print("----------------------------------------")
+    print(fileContent)
+    print("----------------------------------------")
+    
+    // 4. Console Prompt Input
+    print("Interactive User Input Test:")
+    var user_name = input("Enter your user name: ")
+    print("Welcome to Aura Developer SDK, " + user_name + "!")
+}

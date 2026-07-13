@@ -1,0 +1,11 @@
+// Aura Programming Language Native Web Server
+// Serves a fast styled HTML web page directly
+
+fn main() {
+    print("=== Starting Aura Web Server Engine ===")
+    
+    var port = 8080
+    
+    // Calls standard library startServer function mapped to native WinSockets/POSIX socket API
+    startServer(port)
+}

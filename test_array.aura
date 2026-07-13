@@ -1,0 +1,39 @@
+// Aura Programming Language Arrays & Lists Verification Test
+
+fn main() {
+    print("=== Aura Array Verification Test ===")
+    
+    // 1. Declaring Array of Integers
+    var numbers = [10, 20, 30, 40, 50]
+    
+    // Test size query (templated helper)
+    var num_len = size(numbers)
+    print("Initial size of numbers array:")
+    print(num_len)
+    
+    // Test index access
+    print("Element at index 2 (Expected 30):")
+    print(numbers[2])
+    
+    // 2. Test element modification (write)
+    print("Modifying index 2 value to 99...")
+    numbers[2] = 99
+    print("Updated element at index 2:")
+    print(numbers[2])
+    
+    // 3. Test loop over array elements
+    print("Iterating over numbers array:")
+    var i = 0
+    while i < num_len {
+        print("numbers[" + i + "] = " + numbers[i])
+        i = i + 1
+    }
+    
+    // 4. Declaring Array of Strings
+    print("Declaring string array...")
+    var names = ["Android", "Kotlin", "Aura", "C++"]
+    print("Names array length:")
+    print(size(names))
+    print("First name:")
+    print(names[0])
+}

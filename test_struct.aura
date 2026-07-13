@@ -1,0 +1,39 @@
+// Aura Programming Language Structs & OOP Verification Test
+
+struct User {
+    name
+    age
+    isDeveloper
+}
+
+fn main() {
+    print("=== Aura OOP Structs Verification Test ===")
+    
+    // 1. Instantiation (parenthesis initialization)
+    var u = User("Abhiraj Aryan", 25, true)
+    
+    // 2. Read Member Variables (dot lookups)
+    print("User Name:")
+    print(u.name)
+    print("User Age:")
+    print(u.age)
+    print("Is Developer:")
+    print(u.isDeveloper)
+    
+    // 3. Mutate Member Variables (dot assignments)
+    print("Updating age...")
+    u.age = 26
+    print("New Age:")
+    print(u.age)
+    
+    // 4. Multiple instances
+    print("Declaring second user...")
+    var user2 = User("John Doe", 30, false)
+    print("User2 Developer status:")
+    print(user2.isDeveloper)
+    
+    print("Updating user2 developer status to true...")
+    user2.isDeveloper = true
+    print("Updated User2 Developer status:")
+    print(user2.isDeveloper)
+}
