@@ -1,0 +1,66 @@
+print("========================================")
+print("  Aura Phase 3 Demo: Real-World App     ")
+print("========================================")
+
+class SystemLogger {
+    fn init(filename) {
+        this.filename = filename
+        file_write(this.filename, "--- AURA APPLICATION LOGS ---\n")
+    }
+
+    fn log(msg) {
+        var existing = file_read(this.filename)
+        var newLog = existing + "[LOG] " + msg + "\n"
+        file_write(this.filename, newLog)
+    }
+}
+
+class WeatherFetcher {
+    fn getCityWeather(city) {
+        // wttr.in format=3 gives a nice single-line weather status
+        var url = "https://wttr.in/" + city + "?format=3"
+        var result = http_get(url)
+        return result
+    }
+}
+
+class MathTests {
+    fn runPowers() {
+        var sum = 0
+        for var n = 1; n <= 10; n = n + 1 {
+            sum = sum + math_pow(2, n)
+        }
+        return sum
+    }
+}
+
+// 1. Initialize Logger (Tests Classes, Methods, Properties, File I/O)
+var logger = SystemLogger()
+logger.init("aura_app.log")
+logger.log("Application started successfully.")
+
+// 2. Fetch Weather (Tests HTTP Network, Arrays, Loops)
+var fetcher = WeatherFetcher()
+var cities = ["London", "Tokyo", "Delhi", "Dubai"]
+
+logger.log("Starting weather fetch job for " + len(cities) + " cities...")
+
+var i = 0
+while i < len(cities) {
+    var city = cities[i]
+    var weather = fetcher.getCityWeather(city)
+    logger.log(weather)
+    i = i + 1
+}
+
+// 3. Compute Math (Tests For-loop, Math module)
+logger.log("Computing heavy math equations...")
+var m = MathTests()
+var mathResult = m.runPowers()
+logger.log("Sum of powers of 2 up to 10 = " + mathResult)
+
+logger.log("Application shutting down.")
+
+// 4. Output Results
+print("\n[Application completed. Reading generated log file...]\n")
+print(file_read("aura_app.log"))

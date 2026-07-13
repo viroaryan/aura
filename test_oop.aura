@@ -1,0 +1,47 @@
+print("========================================")
+print("  AuraVM v1.4 - Object-Oriented Classes ")
+print("========================================")
+
+class Animal {
+    fn speak() {
+        print("I am an animal named " + this.name)
+    }
+    
+    fn setName(n) {
+        this.name = n
+    }
+}
+
+print("\n--- Test 1: Class Instantiation ---")
+var dog = Animal()
+dog.setName("Rex")
+dog.speak()
+
+class Calculator {
+    fn add(a, b) {
+        return a + b
+    }
+    fn multiply(a, b) {
+        return a * b
+    }
+}
+
+print("\n--- Test 2: Methods and Properties ---")
+var calc = Calculator()
+var result = calc.multiply(10, 5)
+print("10 * 5 = " + result)
+
+class Person {
+    fn greet(other) {
+        print("Hello " + other + ", my name is " + this.name + " and I am " + this.age + " years old.")
+    }
+}
+
+var p1 = Person()
+p1.name = "Alice"
+p1.age = 25
+p1.greet("Bob")
+
+print("\n========================================")
+print("  Classes and OOP Executed!  ")
+print("========================================")

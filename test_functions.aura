@@ -1,0 +1,45 @@
+print("========================================")
+print("  AuraVM v1.2 - Functions & Call Frames ")
+print("========================================")
+
+print("\n--- Test 1: Simple Function ---")
+fn greet(name) {
+    print("Hello, " + name + "!")
+}
+greet("World")
+
+print("\n--- Test 2: Function with Return ---")
+fn add(a, b) {
+    return a + b
+}
+var sum = add(10, 20)
+print("10 + 20 = " + sum)
+
+print("\n--- Test 3: Recursive Function ---")
+fn factorial(n) {
+    if n <= 1 {
+        return 1
+    }
+    return n * factorial(n - 1)
+}
+
+print("Factorial of 5 = " + factorial(5))
+
+print("\n--- Test 4: Nested Call Frames and Local Scope ---")
+var globalVar = 100
+
+fn outer(x) {
+    var y = x * 2
+    
+    fn inner(z) {
+        return x + y + z + globalVar
+    }
+    
+    return inner(5)
+}
+
+print("Nested scope result = " + outer(10))
+
+print("\n========================================")
+print("  Functions tests completed!  ")
+print("========================================")

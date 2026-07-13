@@ -1,5 +1,6 @@
 // ==================================================
 // Aura Programming Language Native Compiler (aurac)
+// Version 2.0 — Phase 1: Core Language Foundations
 // Written in C++17 - Zero dependencies, extreme performance
 // ==================================================
 
@@ -13,6 +14,7 @@
 #include <cstdlib>
 #include <cctype>
 #include <filesystem>
+#include <cmath>
 
 namespace fs = std::filesystem;
 
@@ -22,10 +24,11 @@ namespace fs = std::filesystem;
 
 enum TokenType {
     T_FN, T_VAR, T_PRINT, T_IF, T_ELSE, T_WHILE, T_RETURN, T_EXTERN, T_STRUCT,
+    T_TRUE, T_FALSE, T_AND, T_OR, T_NOT, T_FOR, T_IN, T_BREAK, T_CONTINUE,
     T_IDENTIFIER, T_NUMBER, T_STRING,
     T_EQUALS, T_EQ, T_NE, T_LT, T_LE, T_GT, T_GE,
-    T_PLUS, T_MINUS, T_MUL, T_DIV,
-    T_LPAREN, T_RPAREN, T_LBRACE, T_RBRACE, T_COMMA,
+    T_PLUS, T_MINUS, T_MUL, T_DIV, T_MOD,
+    T_LPAREN, T_RPAREN, T_LBRACE, T_RBRACE, T_COMMA, T_SEMICOLON,
     T_LBRACKET, T_RBRACKET,
     T_DOT,
     T_EOF
@@ -40,10 +43,11 @@ struct Token {
     std::string toString() const {
         std::string typeNames[] = {
             "FN", "VAR", "PRINT", "IF", "ELSE", "WHILE", "RETURN", "EXTERN", "STRUCT",
+            "TRUE", "FALSE", "AND", "OR", "NOT", "FOR", "IN", "BREAK", "CONTINUE",
             "IDENTIFIER", "NUMBER", "STRING",
             "EQUALS", "EQ", "NE", "LT", "LE", "GT", "GE",
-            "PLUS", "MINUS", "MUL", "DIV",
-            "LPAREN", "RPAREN", "LBRACE", "RBRACE", "COMMA",
+            "PLUS", "MINUS", "MUL", "DIV", "MOD",
+            "LPAREN", "RPAREN", "LBRACE", "RBRACE", "COMMA", "SEMICOLON",
             "LBRACKET", "RBRACKET",
             "DOT",
             "EOF"
@@ -143,6 +147,8 @@ public:
                 advance();
                 if (currentChar == 'n') result.push_back('\n');
                 else if (currentChar == 't') result.push_back('\t');
+                else if (currentChar == '\\') result.push_back('\\');
+                else if (currentChar == '"') result.push_back('"');
                 else result.push_back(currentChar);
             } else {
                 result.push_back(currentChar);
@@ -175,6 +181,15 @@ public:
         else if (result == "return") t = T_RETURN;
         else if (result == "extern") t = T_EXTERN;
         else if (result == "struct") t = T_STRUCT;
+        else if (result == "true") t = T_TRUE;
+        else if (result == "false") t = T_FALSE;
+        else if (result == "and") t = T_AND;
+        else if (result == "or") t = T_OR;
+        else if (result == "not") t = T_NOT;
+        else if (result == "for") t = T_FOR;
+        else if (result == "in") t = T_IN;
+        else if (result == "break") t = T_BREAK;
+        else if (result == "continue") t = T_CONTINUE;
 
         return Token{t, result, line, startCol};
     }
@@ -223,7 +238,7 @@ public:
                     advance();
                     return Token{T_NE, "!=", line, startCol};
                 }
-                throw std::runtime_error("Syntax Error: Unexpected character '!' on line " + std::to_string(line));
+                throw std::runtime_error("Syntax Error: Unexpected character '!' on line " + std::to_string(line) + ". Did you mean 'not'?");
             }
             if (c == '<') {
                 advance();
@@ -245,11 +260,13 @@ public:
             if (c == '-') { advance(); return Token{T_MINUS, "-", line, startCol}; }
             if (c == '*') { advance(); return Token{T_MUL, "*", line, startCol}; }
             if (c == '/') { advance(); return Token{T_DIV, "/", line, startCol}; }
+            if (c == '%') { advance(); return Token{T_MOD, "%", line, startCol}; }
             if (c == '(') { advance(); return Token{T_LPAREN, "(", line, startCol}; }
             if (c == ')') { advance(); return Token{T_RPAREN, ")", line, startCol}; }
             if (c == '{') { advance(); return Token{T_LBRACE, "{", line, startCol}; }
             if (c == '}') { advance(); return Token{T_RBRACE, "}", line, startCol}; }
             if (c == ',') { advance(); return Token{T_COMMA, ",", line, startCol}; }
+            if (c == ';') { advance(); return Token{T_SEMICOLON, ";", line, startCol}; }
             if (c == '[') { advance(); return Token{T_LBRACKET, "[", line, startCol}; }
             if (c == ']') { advance(); return Token{T_RBRACKET, "]", line, startCol}; }
             if (c == '.') { advance(); return Token{T_DOT, ".", line, startCol}; }
@@ -313,6 +330,29 @@ struct WhileNode : ASTNode {
     std::string typeName() const override { return "While"; }
 };
 
+struct ForNode : ASTNode {
+    std::unique_ptr<ASTNode> init;       // var i = 0
+    std::unique_ptr<ASTNode> cond;       // i < 10
+    std::unique_ptr<ASTNode> update;     // i = i + 1
+    std::vector<std::unique_ptr<ASTNode>> body;
+    std::string typeName() const override { return "For"; }
+};
+
+struct ForInNode : ASTNode {
+    std::string varName;                 // item
+    std::unique_ptr<ASTNode> iterable;   // myArray
+    std::vector<std::unique_ptr<ASTNode>> body;
+    std::string typeName() const override { return "ForIn"; }
+};
+
+struct BreakNode : ASTNode {
+    std::string typeName() const override { return "Break"; }
+};
+
+struct ContinueNode : ASTNode {
+    std::string typeName() const override { return "Continue"; }
+};
+
 struct ReturnNode : ASTNode {
     std::unique_ptr<ASTNode> expr;
     std::string typeName() const override { return "Return"; }
@@ -336,9 +376,15 @@ struct BinOpNode : ASTNode {
     std::string typeName() const override { return "BinOp"; }
 };
 
+struct UnaryOpNode : ASTNode {
+    std::string op;                      // "-" or "not"
+    std::unique_ptr<ASTNode> operand;
+    std::string typeName() const override { return "UnaryOp"; }
+};
+
 struct LiteralNode : ASTNode {
     std::string value;
-    std::string valueType; // "NUMBER" or "STRING"
+    std::string valueType; // "NUMBER", "STRING", or "BOOL"
     std::string typeName() const override { return "Literal"; }
 };
 
@@ -491,8 +537,16 @@ public:
             return parseIf();
         } else if (currentToken.type == T_WHILE) {
             return parseWhile();
+        } else if (currentToken.type == T_FOR) {
+            return parseFor();
         } else if (currentToken.type == T_RETURN) {
             return parseReturn();
+        } else if (currentToken.type == T_BREAK) {
+            consume(T_BREAK);
+            return std::make_unique<BreakNode>();
+        } else if (currentToken.type == T_CONTINUE) {
+            consume(T_CONTINUE);
+            return std::make_unique<ContinueNode>();
         } else {
             auto expr = parseExpression();
             auto stmt = std::make_unique<ExpressionStatementNode>();
@@ -540,12 +594,19 @@ public:
         bool hasElse = false;
         if (currentToken.type == T_ELSE) {
             consume(T_ELSE);
-            consume(T_LBRACE);
             hasElse = true;
-            while (currentToken.type != T_RBRACE && currentToken.type != T_EOF) {
-                elseBranch.push_back(parseStatement());
+
+            // Support "else if" chains
+            if (currentToken.type == T_IF) {
+                // Parse the nested if as a single statement in the else branch
+                elseBranch.push_back(parseIf());
+            } else {
+                consume(T_LBRACE);
+                while (currentToken.type != T_RBRACE && currentToken.type != T_EOF) {
+                    elseBranch.push_back(parseStatement());
+                }
+                consume(T_RBRACE);
             }
-            consume(T_RBRACE);
         }
 
         auto node = std::make_unique<IfNode>();
@@ -573,10 +634,77 @@ public:
         return node;
     }
 
+    std::unique_ptr<ASTNode> parseFor() {
+        consume(T_FOR);
+
+        // Detect for..in syntax: "for <identifier> in <expr>"
+        if (currentToken.type == T_IDENTIFIER && peekToken.type == T_IN) {
+            return parseForIn();
+        }
+
+        // C-style for: "for var i = 0; i < 10; i = i + 1 { ... }"
+        // Parse init statement
+        std::unique_ptr<ASTNode> init;
+        if (currentToken.type == T_VAR) {
+            init = parseVarDecl();
+        } else {
+            init = parseExpression();
+        }
+        consume(T_SEMICOLON);
+
+        // Parse condition
+        auto cond = parseExpression();
+        consume(T_SEMICOLON);
+
+        // Parse update expression
+        auto update = parseExpression();
+
+        // Parse body
+        consume(T_LBRACE);
+        std::vector<std::unique_ptr<ASTNode>> body;
+        while (currentToken.type != T_RBRACE && currentToken.type != T_EOF) {
+            body.push_back(parseStatement());
+        }
+        consume(T_RBRACE);
+
+        auto node = std::make_unique<ForNode>();
+        node->init = std::move(init);
+        node->cond = std::move(cond);
+        node->update = std::move(update);
+        node->body = std::move(body);
+        return node;
+    }
+
+    std::unique_ptr<ASTNode> parseForIn() {
+        // Already consumed T_FOR, current is identifier
+        std::string varName = currentToken.value;
+        consume(T_IDENTIFIER);
+        consume(T_IN);
+
+        auto iterable = parseExpression();
+
+        consume(T_LBRACE);
+        std::vector<std::unique_ptr<ASTNode>> body;
+        while (currentToken.type != T_RBRACE && currentToken.type != T_EOF) {
+            body.push_back(parseStatement());
+        }
+        consume(T_RBRACE);
+
+        auto node = std::make_unique<ForInNode>();
+        node->varName = varName;
+        node->iterable = std::move(iterable);
+        node->body = std::move(body);
+        return node;
+    }
+
     std::unique_ptr<ASTNode> parseReturn() {
         consume(T_RETURN);
         std::unique_ptr<ASTNode> expr = nullptr;
-        if (currentToken.type == T_NUMBER || currentToken.type == T_STRING || currentToken.type == T_IDENTIFIER || currentToken.type == T_LPAREN || currentToken.type == T_LBRACKET) {
+        if (currentToken.type == T_NUMBER || currentToken.type == T_STRING ||
+            currentToken.type == T_IDENTIFIER || currentToken.type == T_LPAREN ||
+            currentToken.type == T_LBRACKET || currentToken.type == T_TRUE ||
+            currentToken.type == T_FALSE || currentToken.type == T_NOT ||
+            currentToken.type == T_MINUS) {
             expr = parseExpression();
         }
         auto node = std::make_unique<ReturnNode>();
@@ -584,8 +712,21 @@ public:
         return node;
     }
 
+    // ==================================================
+    // Expression Precedence Chain (lowest to highest):
+    //   Assignment (=)
+    //   → Logical OR (or)
+    //   → Logical AND (and)
+    //   → Comparison (==, !=, <, >, <=, >=)
+    //   → Additive (+, -)
+    //   → Multiplicative (*, /, %)
+    //   → Unary (-, not)
+    //   → Postfix (., [], ())
+    //   → Primary (literals, identifiers, grouping)
+    // ==================================================
+
     std::unique_ptr<ASTNode> parseExpression() {
-        auto node = parseComparison();
+        auto node = parseLogicalOr();
         if (currentToken.type == T_EQUALS) {
             consume(T_EQUALS);
             auto right = parseExpression();
@@ -594,6 +735,34 @@ public:
             binOp->op = "=";
             binOp->right = std::move(right);
             return binOp;
+        }
+        return node;
+    }
+
+    std::unique_ptr<ASTNode> parseLogicalOr() {
+        auto node = parseLogicalAnd();
+        while (currentToken.type == T_OR) {
+            consume(T_OR);
+            auto right = parseLogicalAnd();
+            auto binOp = std::make_unique<BinOpNode>();
+            binOp->left = std::move(node);
+            binOp->op = "or";
+            binOp->right = std::move(right);
+            node = std::move(binOp);
+        }
+        return node;
+    }
+
+    std::unique_ptr<ASTNode> parseLogicalAnd() {
+        auto node = parseComparison();
+        while (currentToken.type == T_AND) {
+            consume(T_AND);
+            auto right = parseComparison();
+            auto binOp = std::make_unique<BinOpNode>();
+            binOp->left = std::move(node);
+            binOp->op = "and";
+            binOp->right = std::move(right);
+            node = std::move(binOp);
         }
         return node;
     }
@@ -629,11 +798,11 @@ public:
     }
 
     std::unique_ptr<ASTNode> parseTerm() {
-        auto node = parseFactor();
-        while (currentToken.type == T_MUL || currentToken.type == T_DIV) {
+        auto node = parseUnary();
+        while (currentToken.type == T_MUL || currentToken.type == T_DIV || currentToken.type == T_MOD) {
             std::string op = currentToken.value;
             consume(currentToken.type);
-            auto right = parseFactor();
+            auto right = parseUnary();
             auto binOp = std::make_unique<BinOpNode>();
             binOp->left = std::move(node);
             binOp->op = op;
@@ -641,6 +810,28 @@ public:
             node = std::move(binOp);
         }
         return node;
+    }
+
+    std::unique_ptr<ASTNode> parseUnary() {
+        // Handle unary minus: -expr
+        if (currentToken.type == T_MINUS) {
+            consume(T_MINUS);
+            auto operand = parseUnary(); // Right-recursive for chaining: --x
+            auto node = std::make_unique<UnaryOpNode>();
+            node->op = "-";
+            node->operand = std::move(operand);
+            return node;
+        }
+        // Handle logical not: not expr
+        if (currentToken.type == T_NOT) {
+            consume(T_NOT);
+            auto operand = parseUnary();
+            auto node = std::make_unique<UnaryOpNode>();
+            node->op = "not";
+            node->operand = std::move(operand);
+            return node;
+        }
+        return parseFactor();
     }
 
     std::unique_ptr<ASTNode> parsePrimary() {
@@ -657,6 +848,18 @@ public:
             auto node = std::make_unique<LiteralNode>();
             node->value = val;
             node->valueType = "STRING";
+            return node;
+        } else if (currentToken.type == T_TRUE) {
+            consume(T_TRUE);
+            auto node = std::make_unique<LiteralNode>();
+            node->value = "true";
+            node->valueType = "BOOL";
+            return node;
+        } else if (currentToken.type == T_FALSE) {
+            consume(T_FALSE);
+            auto node = std::make_unique<LiteralNode>();
+            node->value = "false";
+            node->valueType = "BOOL";
             return node;
         } else if (currentToken.type == T_LBRACKET) {
             consume(T_LBRACKET);
@@ -761,6 +964,7 @@ public:
             if (c == '"') result += "\\\"";
             else if (c == '\n') result += "\\n";
             else if (c == '\t') result += "\\t";
+            else if (c == '\\') result += "\\\\";
             else result.push_back(c);
         }
         return result;
@@ -772,7 +976,7 @@ public:
 
         if (tn == "Program") {
             const auto* p = static_cast<const ProgramNode*>(node);
-            std::string code = "#include <iostream>\n#include <string>\n#include \"aura_stdlib.h\"\n\n";
+            std::string code = "#include <iostream>\n#include <string>\n#include <cmath>\n#include \"aura_stdlib.h\"\n\n";
             for (const auto& decl : p->declarations) {
                 code += generate(decl.get()) + "\n";
             }
@@ -834,13 +1038,18 @@ public:
             indentLevel--;
             code += indent() + "}";
             if (i->hasElse) {
-                code += " else {\n";
-                indentLevel++;
-                for (const auto& stmt : i->elseBranch) {
-                    code += indent() + generate(stmt.get()) + ";\n";
+                // Check if else branch is a single "else if" (IfNode)
+                if (i->elseBranch.size() == 1 && i->elseBranch[0]->typeName() == "If") {
+                    code += " else " + generate(i->elseBranch[0].get());
+                } else {
+                    code += " else {\n";
+                    indentLevel++;
+                    for (const auto& stmt : i->elseBranch) {
+                        code += indent() + generate(stmt.get()) + ";\n";
+                    }
+                    indentLevel--;
+                    code += indent() + "}";
                 }
-                indentLevel--;
-                code += indent() + "}";
             }
             return code;
         }
@@ -854,6 +1063,37 @@ public:
             indentLevel--;
             code += indent() + "}";
             return code;
+        }
+        else if (tn == "For") {
+            const auto* f = static_cast<const ForNode*>(node);
+            std::string initCode = generate(f->init.get());
+            std::string condCode = generate(f->cond.get());
+            std::string updateCode = generate(f->update.get());
+            std::string code = "for (" + initCode + "; " + condCode + "; " + updateCode + ") {\n";
+            indentLevel++;
+            for (const auto& stmt : f->body) {
+                code += indent() + generate(stmt.get()) + ";\n";
+            }
+            indentLevel--;
+            code += indent() + "}";
+            return code;
+        }
+        else if (tn == "ForIn") {
+            const auto* fi = static_cast<const ForInNode*>(node);
+            std::string code = "for (auto& " + fi->varName + " : " + generate(fi->iterable.get()) + ") {\n";
+            indentLevel++;
+            for (const auto& stmt : fi->body) {
+                code += indent() + generate(stmt.get()) + ";\n";
+            }
+            indentLevel--;
+            code += indent() + "}";
+            return code;
+        }
+        else if (tn == "Break") {
+            return "break";
+        }
+        else if (tn == "Continue") {
+            return "continue";
         }
         else if (tn == "Return") {
             const auto* r = static_cast<const ReturnNode*>(node);
@@ -883,12 +1123,31 @@ public:
             if (b->op == ".") {
                 return "(" + generate(b->left.get()) + "." + generate(b->right.get()) + ")";
             }
+            if (b->op == "and") {
+                return "(" + generate(b->left.get()) + " && " + generate(b->right.get()) + ")";
+            }
+            if (b->op == "or") {
+                return "(" + generate(b->left.get()) + " || " + generate(b->right.get()) + ")";
+            }
+            if (b->op == "%") {
+                return "fmod(" + generate(b->left.get()) + ", " + generate(b->right.get()) + ")";
+            }
             return "(" + generate(b->left.get()) + " " + b->op + " " + generate(b->right.get()) + ")";
+        }
+        else if (tn == "UnaryOp") {
+            const auto* u = static_cast<const UnaryOpNode*>(node);
+            if (u->op == "not") {
+                return "(!" + generate(u->operand.get()) + ")";
+            }
+            return "(-" + generate(u->operand.get()) + ")";
         }
         else if (tn == "Literal") {
             const auto* l = static_cast<const LiteralNode*>(node);
             if (l->valueType == "STRING") {
                 return "std::string(\"" + escapeString(l->value) + "\")";
+            }
+            if (l->valueType == "BOOL") {
+                return l->value; // "true" or "false" — same in C++
             }
             return l->value;
         }
@@ -929,7 +1188,7 @@ bool compilerExists(const std::string& name) {
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cout << "Aura Native Compiler v1.0\n";
+        std::cout << "Aura Native Compiler v2.0\n";
         std::cout << "Usage: aurac <source_file.aura> [-o <output_name>]\n";
         return 1;
     }
