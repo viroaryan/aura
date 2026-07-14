@@ -5,15 +5,20 @@
 // ==================================================
 
 #include <iostream>
-#include <string>
-#include <vector>
-#include <memory>
 #include <fstream>
 #include <sstream>
-#include <variant>
+#include <vector>
+#include <string>
 #include <unordered_map>
+#include <variant>
+#include <memory>
 #include <cmath>
+#include <cstdlib>
 #include <cctype>
+
+#define WIN32_LEAN_AND_MEAN
+#define _WIN32_WINNT 0x0A00
+#include "httplib.h"
 #include <functional>
 #include <cstdlib>
 
@@ -175,7 +180,7 @@ public:
 // 3. Lexer & AST 
 // ==================================================
 
-enum TokenType {
+enum AuraTokenType {
     T_VAR, T_PRINT, T_IF, T_ELSE, T_WHILE, T_FOR, T_FN, T_RETURN, T_CLASS,
     T_TRUE, T_FALSE, T_AND, T_OR, T_NOT,
     T_IDENTIFIER, T_NUMBER, T_STRING,
@@ -186,7 +191,7 @@ enum TokenType {
     T_EOF
 };
 
-struct Token { TokenType type; std::string value; int line; };
+struct Token { AuraTokenType type; std::string value; int line; };
 
 class Lexer {
 public:
@@ -306,7 +311,7 @@ class Parser {
 public:
     Lexer& lexer; Token currentToken, peekToken;
     Parser(Lexer& lex) : lexer(lex) { currentToken = lexer.getNextToken(); peekToken = lexer.getNextToken(); }
-    void consume(TokenType expectedType) { if (currentToken.type == expectedType) { currentToken = peekToken; peekToken = lexer.getNextToken(); } else throw std::runtime_error("Syntax error at line " + std::to_string(currentToken.line)); }
+    void consume(AuraTokenType expectedType) { if (currentToken.type == expectedType) { currentToken = peekToken; peekToken = lexer.getNextToken(); } else throw std::runtime_error("Syntax error at line " + std::to_string(currentToken.line)); }
     std::unique_ptr<ProgramNode> parse() { auto p = std::make_unique<ProgramNode>(); while (currentToken.type != T_EOF) p->declarations.push_back(parseStatement()); return p; }
     
     std::unique_ptr<ASTNode> parseStatement() {
@@ -691,6 +696,62 @@ public:
             return false;
         });
 
+        // ----------------------------------------------------
+        // AURA MACHINE LEARNING ENGINE (Native Tensors)
+        // ----------------------------------------------------
+        defineNative("tensor_create", [](const std::vector<Value>& args) -> Value {
+            int rows = std::get<double>(args[0]);
+            int cols = std::get<double>(args[1]);
+            auto matrix = std::make_shared<ValueArray>();
+            for (int i = 0; i < rows; i++) {
+                auto row = std::make_shared<ValueArray>();
+                for (int j = 0; j < cols; j++) row->elements.push_back(0.0);
+                matrix->elements.push_back(row);
+            }
+            return matrix;
+        });
+
+        defineNative("tensor_dot", [](const std::vector<Value>& args) -> Value {
+            auto m1 = std::get<std::shared_ptr<ValueArray>>(args[0]);
+            auto m2 = std::get<std::shared_ptr<ValueArray>>(args[1]);
+            int r1 = m1->elements.size();
+            int c1 = std::get<std::shared_ptr<ValueArray>>(m1->elements[0])->elements.size();
+            int c2 = std::get<std::shared_ptr<ValueArray>>(m2->elements[0])->elements.size();
+            
+            auto result = std::make_shared<ValueArray>();
+            for (int i = 0; i < r1; i++) {
+                auto row = std::make_shared<ValueArray>();
+                auto r1_ptr = std::get<std::shared_ptr<ValueArray>>(m1->elements[i]);
+                for (int j = 0; j < c2; j++) {
+                    double sum = 0.0;
+                    for (int k = 0; k < c1; k++) {
+                        auto r2_ptr = std::get<std::shared_ptr<ValueArray>>(m2->elements[k]);
+                        sum += std::get<double>(r1_ptr->elements[k]) * std::get<double>(r2_ptr->elements[j]);
+                    }
+                    row->elements.push_back(sum);
+                }
+                result->elements.push_back(row);
+            }
+            return result;
+        });
+
+        // ----------------------------------------------------
+        // AURA WEB ENGINE (Native HTTP Server)
+        // ----------------------------------------------------
+        defineNative("server_start", [](const std::vector<Value>& args) -> Value {
+            int port = std::get<double>(args[0]);
+            std::string html_content = std::get<std::string>(args[1]);
+            
+            httplib::Server svr;
+            svr.Get("/", [html_content](const httplib::Request &, httplib::Response &res) {
+                res.set_content(html_content, "text/html");
+            });
+            
+            std::cout << "[Aura Web] Server listening on http://localhost:" << port << "\n";
+            svr.listen("0.0.0.0", port);
+            return true;
+        });
+
         CallFrame mainFrame; mainFrame.function = nullptr; mainFrame.ip = chunk->code.data(); frames.push_back(mainFrame);
         run(); 
     }
@@ -890,3 +951,5 @@ int main(int argc, char* argv[]) {
     } catch (const std::exception& e) { std::cerr << "[VM Error] " << e.what() << "\n"; }
     return 0;
 }
+
+

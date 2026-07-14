@@ -1,11 +1,25 @@
-// Aura Programming Language Native Web Server
-// Serves a fast styled HTML web page directly
+print("========================================")
+print("  AURA NATIVE WEB ENGINE TEST           ")
+print("========================================\n")
 
-fn main() {
-    print("=== Starting Aura Web Server Engine ===")
-    
-    var port = 8080
-    
-    // Calls standard library startServer function mapped to native WinSockets/POSIX socket API
-    startServer(port)
-}
+var html = "
+<html>
+<head>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f172a; color: white; text-align: center; padding: 50px; }
+        h1 { font-size: 3rem; background: linear-gradient(90deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .card { background: #1e293b; padding: 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: inline-block; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class='card'>
+        <h1>Hello from Aura Web! 🚀</h1>
+        <p>This entire web server is running natively inside the C++ AuraVM!</p>
+        <p>Powered by cpp-httplib & Aura Language</p>
+    </div>
+</body>
+</html>
+"
+
+print("Starting native HTTP server...")
+server_start(8080, html)
