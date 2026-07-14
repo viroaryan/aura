@@ -1,0 +1,26 @@
+class Tensor {
+    fn create(data, length) {
+        this.data = data;
+        this.length = length;
+    }
+
+    fn dot(other) {
+        var sum = 0;
+        var i = 0;
+        while (i < this.length) {
+            sum = sum + (this.data[i] * other.data[i]);
+            i = i + 1;
+        }
+        return sum;
+    }
+    
+    fn relu() {
+        var i = 0;
+        while (i < this.length) {
+            if (this.data[i] < 0) {
+                this.data[i] = 0;
+            }
+            i = i + 1;
+        }
+    }
+}

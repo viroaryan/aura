@@ -1,0 +1,249 @@
+// ---------------------------------------------------------
+// Module: core/parser/ast.aura
+// Purpose: Abstract Syntax Tree node definitions
+// Description: Defines the tree structure representing the
+//              parsed source code. Supports statements,
+//              expressions, and declarations.
+// ---------------------------------------------------------
+
+class ASTNodeType {
+    fn init() {
+        // Declarations
+        this.PROGRAM = "PROGRAM"
+        this.FUNCTION_DECL = "FUNCTION_DECL"
+        this.VAR_DECL = "VAR_DECL"
+        this.CLASS_DECL = "CLASS_DECL"
+        
+        // Statements
+        this.BLOCK_STMT = "BLOCK_STMT"
+        this.IF_STMT = "IF_STMT"
+        this.WHILE_STMT = "WHILE_STMT"
+        this.RETURN_STMT = "RETURN_STMT"
+        this.EXPR_STMT = "EXPR_STMT"
+        
+        // Expressions
+        this.BINARY_EXPR = "BINARY_EXPR"
+        this.UNARY_EXPR = "UNARY_EXPR"
+        this.LITERAL_EXPR = "LITERAL_EXPR"
+        this.IDENTIFIER_EXPR = "IDENTIFIER_EXPR"
+        this.ASSIGN_EXPR = "ASSIGN_EXPR"
+        this.CALL_EXPR = "CALL_EXPR"
+        this.ARRAY_EXPR = "ARRAY_EXPR"
+        this.INDEX_EXPR = "INDEX_EXPR"
+        this.INDEX_ASSIGN_EXPR = "INDEX_ASSIGN_EXPR"
+        this.GET_EXPR = "GET_EXPR"
+        this.SET_EXPR = "SET_EXPR"
+        this.NEW_EXPR = "NEW_EXPR"
+    }
+}
+
+// ----------------------------------------
+// Base Node
+// ----------------------------------------
+class ASTNode {
+    fn init(type) {
+        this.type = type
+        this.line = 0
+        this.column = 0
+    }
+}
+
+// ----------------------------------------
+// Declarations
+// ----------------------------------------
+
+class ProgramNode {
+    fn init() {
+        this.base = ASTNode()
+        this.base.init("PROGRAM")
+        this.statements = [] // Array of AST nodes
+    }
+}
+
+class FunctionDeclNode {
+    fn init(name, params, body) {
+        this.base = ASTNode()
+        this.base.init("FUNCTION_DECL")
+        this.name = name
+        this.params = params // Array of strings (param names)
+        this.body = body // BlockStmtNode
+    }
+}
+
+class VarDeclNode {
+    fn init(name, initializer) {
+        this.base = ASTNode()
+        this.base.init("VAR_DECL")
+        this.name = name
+        this.initializer = initializer // Expression node
+    }
+}
+
+class ClassDeclNode {
+    fn init(name, methods) {
+        this.base = ASTNode()
+        this.base.init("CLASS_DECL")
+        this.name = name
+        this.methods = methods // Array of FunctionDeclNode
+    }
+}
+
+// ----------------------------------------
+// Statements
+// ----------------------------------------
+
+class BlockStmtNode {
+    fn init(statements) {
+        this.base = ASTNode()
+        this.base.init("BLOCK_STMT")
+        this.statements = statements
+    }
+}
+
+class IfStmtNode {
+    fn init(condition, thenBranch, elseBranch) {
+        this.base = ASTNode()
+        this.base.init("IF_STMT")
+        this.condition = condition
+        this.thenBranch = thenBranch
+        this.elseBranch = elseBranch // Can be null
+    }
+}
+
+class WhileStmtNode {
+    fn init(condition, body) {
+        this.base = ASTNode()
+        this.base.init("WHILE_STMT")
+        this.condition = condition
+        this.body = body
+    }
+}
+
+class ReturnStmtNode {
+    fn init(value) {
+        this.base = ASTNode()
+        this.base.init("RETURN_STMT")
+        this.value = value // Expression node
+    }
+}
+
+class ExprStmtNode {
+    fn init(expression) {
+        this.base = ASTNode()
+        this.base.init("EXPR_STMT")
+        this.expression = expression
+    }
+}
+
+// ----------------------------------------
+// Expressions
+// ----------------------------------------
+
+class BinaryExprNode {
+    fn init(left, operator, right) {
+        this.base = ASTNode()
+        this.base.init("BINARY_EXPR")
+        this.left = left
+        this.operator = operator // string, e.g., "+", "=="
+        this.right = right
+    }
+}
+
+class UnaryExprNode {
+    fn init(operator, right) {
+        this.base = ASTNode()
+        this.base.init("UNARY_EXPR")
+        this.operator = operator
+        this.right = right
+    }
+}
+
+class LiteralExprNode {
+    fn init(value, literalType) {
+        this.base = ASTNode()
+        this.base.init("LITERAL_EXPR")
+        this.value = value
+        this.literalType = literalType // "NUMBER" or "STRING"
+    }
+}
+
+class IdentifierExprNode {
+    fn init(name) {
+        this.base = ASTNode()
+        this.base.init("IDENTIFIER_EXPR")
+        this.name = name
+    }
+}
+
+class AssignExprNode {
+    fn init(name, value) {
+        this.base = ASTNode()
+        this.base.init("ASSIGN_EXPR")
+        this.name = name
+        this.value = value
+    }
+}
+
+class CallExprNode {
+    fn init(callee, args) {
+        this.base = ASTNode()
+        this.base.init("CALL_EXPR")
+        this.callee = callee // Expression node
+        this.args = args // Array of expression nodes
+    }
+}
+
+class ArrayExprNode {
+    fn init(elements) {
+        this.base = ASTNode()
+        this.base.init("ARRAY_EXPR")
+        this.elements = elements // Array of expression nodes
+    }
+}
+
+class IndexExprNode {
+    fn init(ds, index) {
+        this.base = ASTNode()
+        this.base.init("INDEX_EXPR")
+        this.ds = ds // The array/string being indexed
+        this.index = index // The index expression
+    }
+}
+
+class IndexAssignExprNode {
+    fn init(ds, index, value) {
+        this.base = ASTNode()
+        this.base.init("INDEX_ASSIGN_EXPR")
+        this.ds = ds
+        this.index = index
+        this.value = value
+    }
+}
+
+class GetExprNode {
+    fn init(obj, name) {
+        this.base = ASTNode()
+        this.base.init("GET_EXPR")
+        this.obj = obj // Expression returning an instance
+        this.name = name // Property name (string)
+    }
+}
+
+class SetExprNode {
+    fn init(obj, name, value) {
+        this.base = ASTNode()
+        this.base.init("SET_EXPR")
+        this.obj = obj // Expression returning an instance
+        this.name = name // Property name (string)
+        this.value = value // Expression to assign
+    }
+}
+
+class NewExprNode {
+    fn init(className, args) {
+        this.base = ASTNode()
+        this.base.init("NEW_EXPR")
+        this.className = className // String name of the class
+        this.args = args // Array of args for constructor (optional later)
+    }
+}

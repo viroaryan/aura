@@ -1,0 +1,1044 @@
+// ---------------------------------------------------------
+// Module: core/parser/lexer.aura
+// Purpose: High-performance tokenizer for the Aura language
+// Description: Converts raw source code text into a stream of 
+//              Tokens for the parser. Handles unicode, errors, 
+//              and source mapping (lines/columns).
+// ---------------------------------------------------------
+
+// ----------------------------------------
+// Token Types (Enum Simulation)
+// ----------------------------------------
+// Represents the category of a lexical token.
+
+class TokenType {
+    fn init() {
+        // Keywords
+        this.FN = "FN"
+        this.VAR = "VAR"
+        this.IF = "IF"
+        this.ELSE = "ELSE"
+        this.WHILE = "WHILE"
+        this.RETURN = "RETURN"
+        this.CLASS = "CLASS"
+        
+        // Literals
+        this.IDENTIFIER = "IDENTIFIER"
+        this.NUMBER = "NUMBER"
+        this.STRING = "STRING"
+        
+        // Operators & Symbols
+        this.PLUS = "PLUS"
+        this.MINUS = "MINUS"
+        this.MUL = "MUL"
+        this.DIV = "DIV"
+        this.ASSIGN = "ASSIGN"
+        this.EQ = "EQ"
+        this.NEQ = "NEQ"
+        this.LT = "LT"
+        this.GT = "GT"
+        this.LTE = "LTE"
+        this.GTE = "GTE"
+        
+        // Punctuation
+        this.LPAREN = "LPAREN"
+        this.RPAREN = "RPAREN"
+        this.LBRACE = "LBRACE"
+        this.RBRACE = "RBRACE"
+        this.COMMA = "COMMA"
+        this.DOT = "DOT"
+        this.SEMICOLON = "SEMICOLON"
+        
+        // End of File
+        this.EOF = "EOF"
+        // Error Token (for graceful error recovery)
+        this.ERROR = "ERROR"
+    }
+}
+
+// ----------------------------------------
+// Source Position
+// ----------------------------------------
+// Tracks line and column numbers for precise error reporting.
+
+class SourcePosition {
+    fn init(line, column) {
+        this.line = line
+        this.column = column
+    }
+}
+
+// ----------------------------------------
+// Token
+// ----------------------------------------
+// A single lexical unit containing its type, raw text, and position.
+
+class Token {
+    fn init(type, text, line, column) {
+        this.type = type
+        this.text = text
+        this.position = SourcePosition()
+        this.position.init(line, column)
+    }
+    
+    fn toString() {
+        return "Token(" + this.type + ", '" + this.text + "', line " + this.position.line + ")"
+    }
+}
+
+fn createToken(type, text, line, column) {
+    var t = Token()
+    t.init(type, text, line, column)
+    return t
+}
+
+// ----------------------------------------
+// Lexer
+// ----------------------------------------
+// The main scanner class.
+
+class Lexer {
+    fn init(source) {
+        this.source = source
+        this.pos = 0
+        this.length = len(source)
+        this.line = 1
+        this.column = 1
+        
+        // Initialize token types cache
+        this.types = TokenType()
+        this.types.init()
+    }
+    
+    // ----------------------------------------
+    // Core Helper Methods
+    // ----------------------------------------
+
+    fn peek() {
+        if this.pos < this.length { 
+            return string_char_at(this.source, this.pos) 
+        }
+        return ""
+    }
+    
+    fn peekNext() {
+        if this.pos + 1 < this.length {
+            return string_char_at(this.source, this.pos + 1)
+        }
+        return ""
+    }
+
+    fn advance() {
+        var ch = this.peek()
+        this.pos = this.pos + 1
+        if ch == string_char_at("\n", 0) {
+            this.line = this.line + 1
+            this.column = 1
+        } else {
+            this.column = this.column + 1
+        }
+        return ch
+    }
+
+    fn skipWhitespaceAndComments() {
+        var loop = 1
+        while loop == 1 {
+            var ch = this.peek()
+            
+            // Skip Whitespace
+            if char_is_space(ch) {
+                this.advance()
+            } 
+            // Skip Line Comments (//)
+            else if ch == "/" and this.peekNext() == "/" {
+                var innerLoop = 1
+                while innerLoop == 1 {
+                    var c = this.peek()
+                    if c == "" { innerLoop = 0 }
+                    else if c == string_char_at("\n", 0) { innerLoop = 0 }
+                    else { this.advance() }
+                }
+            } 
+            // Neither whitespace nor comment, so break
+            else {
+                loop = 0
+            }
+        }
+    }
+
+    // ----------------------------------------
+    // Tokenization Logic
+    // ----------------------------------------
+
+    fn tokenize() {
+        var tokens = []
+        var loop = 1
+        
+        while loop == 1 {
+            this.skipWhitespaceAndComments()
+            
+            if this.pos >= this.length { 
+                loop = 0 
+            } else {
+                var start_col = this.column
+                var ch = this.peek()
+                
+                // Numbers
+                if char_is_digit(ch) {
+                    var num = ""
+                    var inner = 1
+                    while inner == 1 {
+                        var c = this.peek()
+                        if c == "" { inner = 0 }
+                        else if char_is_digit(c) { num = num + this.advance() }
+                        // Handle decimals (simplified for now)
+                        else if c == "." and char_is_digit(this.peekNext()) { 
+                            num = num + this.advance() 
+                        }
+                        else { inner = 0 }
+                    }
+                    array_push(tokens, createToken(this.types.NUMBER, num, this.line, start_col))
+                } 
+                // Identifiers & Keywords
+                else if char_is_alpha(ch) {
+                    var word = ""
+                    var inner = 1
+                    while inner == 1 {
+                        var c = this.peek()
+                        if c == "" { inner = 0 }
+                        else if char_is_alpha(c) or char_is_digit(c) or c == "_" { 
+                            word = word + this.advance() 
+                        }
+                        else { inner = 0 }
+                    }
+                    
+                    // Keyword Matching
+                    if word == "fn" { array_push(tokens, createToken(this.types.FN, word, this.line, start_col)) }
+                    else if word == "var" { array_push(tokens, createToken(this.types.VAR, word, this.line, start_col)) }
+                    else if word == "if" { array_push(tokens, createToken(this.types.IF, word, this.line, start_col)) }
+                    else if word == "else" { array_push(tokens, createToken(this.types.ELSE, word, this.line, start_col)) }
+                    else if word == "while" { array_push(tokens, createToken(this.types.WHILE, word, this.line, start_col)) }
+                    else if word == "return" { array_push(tokens, createToken(this.types.RETURN, word, this.line, start_col)) }
+                    else if word == "class" { array_push(tokens, createToken(this.types.CLASS, word, this.line, start_col)) }
+                    else { 
+                        array_push(tokens, createToken(this.types.IDENTIFIER, word, this.line, start_col)) 
+                    }
+                } 
+                // Strings
+                else if ch == "\"" {
+                    this.advance() // Consume opening quote
+                    var str_val = ""
+                    var inner = 1
+                    var is_closed = false
+                    while inner == 1 {
+                        var c = this.peek()
+                        if c == "" { inner = 0 } // EOF before closing quote
+                        else if c == "\"" { 
+                            this.advance() // Consume closing quote
+                            is_closed = true
+                            inner = 0 
+                        }
+                        else if c == "\\" { // Handle escapes
+                            this.advance()
+                            var escape_char = this.advance()
+                            if escape_char == "n" { str_val = str_val + string_char_at("\n", 0) }
+                            else if escape_char == "t" { str_val = str_val + string_char_at("\t", 0) }
+                            else if escape_char == "\\" { str_val = str_val + "\\" }
+                            else if escape_char == "\"" { str_val = str_val + "\"" }
+                            else { str_val = str_val + "\\" + escape_char }
+                        }
+                        else { str_val = str_val + this.advance() }
+                    }
+                    if is_closed {
+                        array_push(tokens, createToken(this.types.STRING, str_val, this.line, start_col))
+                    } else {
+                        array_push(tokens, createToken(this.types.ERROR, "Unterminated string", this.line, start_col))
+                    }
+                }
+                // Operators and Punctuation
+                else if ch == "=" {
+                    this.advance()
+                    if this.peek() == "=" {
+                        this.advance()
+                        array_push(tokens, createToken(this.types.EQ, "==", this.line, start_col))
+                    } else {
+                        array_push(tokens, createToken(this.types.ASSIGN, "=", this.line, start_col))
+                    }
+                }
+                else if ch == "!" {
+                    this.advance()
+                    if this.peek() == "=" {
+                        this.advance()
+                        array_push(tokens, createToken(this.types.NEQ, "!=", this.line, start_col))
+                    } else {
+                        array_push(tokens, createToken(this.types.ERROR, "Unexpected '!'", this.line, start_col))
+                    }
+                }
+                else if ch == "<" {
+                    this.advance()
+                    if this.peek() == "=" {
+                        this.advance()
+                        array_push(tokens, createToken(this.types.LTE, "<=", this.line, start_col))
+                    } else {
+                        array_push(tokens, createToken(this.types.LT, "<", this.line, start_col))
+                    }
+                }
+                else if ch == ">" {
+                    this.advance()
+                    if this.peek() == "=" {
+                        this.advance()
+                        array_push(tokens, createToken(this.types.GTE, ">=", this.line, start_col))
+                    } else {
+                        array_push(tokens, createToken(this.types.GT, ">", this.line, start_col))
+                    }
+                }
+                else if ch == "+" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.PLUS, "+", this.line, start_col)) 
+                }
+                else if ch == "-" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.MINUS, "-", this.line, start_col)) 
+                }
+                else if ch == "*" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.MUL, "*", this.line, start_col)) 
+                }
+                else if ch == "/" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.DIV, "/", this.line, start_col)) 
+                }
+                else if ch == "(" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.LPAREN, "(", this.line, start_col)) 
+                }
+                else if ch == ")" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.RPAREN, ")", this.line, start_col)) 
+                }
+                else if ch == "{" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.LBRACE, "{", this.line, start_col)) 
+                }
+                else if ch == "}" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.RBRACE, "}", this.line, start_col)) 
+                }
+                else if ch == "," { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.COMMA, ",", this.line, start_col)) 
+                }
+                else if ch == "." { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.DOT, ".", this.line, start_col)) 
+                }
+                else if ch == ";" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.SEMICOLON, ";", this.line, start_col)) 
+                }
+                // Unhandled character
+                else {
+                    var bad = this.advance()
+                    array_push(tokens, createToken(this.types.ERROR, bad, this.line, start_col))
+                }
+            }
+        }
+        
+        array_push(tokens, createToken(this.types.EOF, "", this.line, this.column))
+        return tokens
+    }
+}
+// ---------------------------------------------------------
+// Module: core/parser/ast.aura
+// Purpose: Abstract Syntax Tree node definitions
+// Description: Defines the tree structure representing the
+//              parsed source code. Supports statements,
+//              expressions, and declarations.
+// ---------------------------------------------------------
+
+class ASTNodeType {
+    fn init() {
+        // Declarations
+        this.PROGRAM = "PROGRAM"
+        this.FUNCTION_DECL = "FUNCTION_DECL"
+        this.VAR_DECL = "VAR_DECL"
+        this.CLASS_DECL = "CLASS_DECL"
+        
+        // Statements
+        this.BLOCK_STMT = "BLOCK_STMT"
+        this.IF_STMT = "IF_STMT"
+        this.WHILE_STMT = "WHILE_STMT"
+        this.RETURN_STMT = "RETURN_STMT"
+        this.EXPR_STMT = "EXPR_STMT"
+        
+        // Expressions
+        this.BINARY_EXPR = "BINARY_EXPR"
+        this.UNARY_EXPR = "UNARY_EXPR"
+        this.LITERAL_EXPR = "LITERAL_EXPR"
+        this.IDENTIFIER_EXPR = "IDENTIFIER_EXPR"
+        this.ASSIGN_EXPR = "ASSIGN_EXPR"
+        this.CALL_EXPR = "CALL_EXPR"
+    }
+}
+
+// ----------------------------------------
+// Base Node
+// ----------------------------------------
+class ASTNode {
+    fn init(type) {
+        this.type = type
+        this.line = 0
+        this.column = 0
+    }
+}
+
+// ----------------------------------------
+// Declarations
+// ----------------------------------------
+
+class ProgramNode {
+    fn init() {
+        this.base = ASTNode()
+        this.base.init("PROGRAM")
+        this.statements = [] // Array of AST nodes
+    }
+}
+
+class FunctionDeclNode {
+    fn init(name, params, body) {
+        this.base = ASTNode()
+        this.base.init("FUNCTION_DECL")
+        this.name = name
+        this.params = params // Array of strings (param names)
+        this.body = body // BlockStmtNode
+    }
+}
+
+class VarDeclNode {
+    fn init(name, initializer) {
+        this.base = ASTNode()
+        this.base.init("VAR_DECL")
+        this.name = name
+        this.initializer = initializer // Expression node
+    }
+}
+
+// ----------------------------------------
+// Statements
+// ----------------------------------------
+
+class BlockStmtNode {
+    fn init(statements) {
+        this.base = ASTNode()
+        this.base.init("BLOCK_STMT")
+        this.statements = statements
+    }
+}
+
+class IfStmtNode {
+    fn init(condition, thenBranch, elseBranch) {
+        this.base = ASTNode()
+        this.base.init("IF_STMT")
+        this.condition = condition
+        this.thenBranch = thenBranch
+        this.elseBranch = elseBranch // Can be null
+    }
+}
+
+class WhileStmtNode {
+    fn init(condition, body) {
+        this.base = ASTNode()
+        this.base.init("WHILE_STMT")
+        this.condition = condition
+        this.body = body
+    }
+}
+
+class ReturnStmtNode {
+    fn init(value) {
+        this.base = ASTNode()
+        this.base.init("RETURN_STMT")
+        this.value = value // Expression node
+    }
+}
+
+class ExprStmtNode {
+    fn init(expression) {
+        this.base = ASTNode()
+        this.base.init("EXPR_STMT")
+        this.expression = expression
+    }
+}
+
+// ----------------------------------------
+// Expressions
+// ----------------------------------------
+
+class BinaryExprNode {
+    fn init(left, operator, right) {
+        this.base = ASTNode()
+        this.base.init("BINARY_EXPR")
+        this.left = left
+        this.operator = operator // string, e.g., "+", "=="
+        this.right = right
+    }
+}
+
+class UnaryExprNode {
+    fn init(operator, right) {
+        this.base = ASTNode()
+        this.base.init("UNARY_EXPR")
+        this.operator = operator
+        this.right = right
+    }
+}
+
+class LiteralExprNode {
+    fn init(value, literalType) {
+        this.base = ASTNode()
+        this.base.init("LITERAL_EXPR")
+        this.value = value
+        this.literalType = literalType // "NUMBER" or "STRING"
+    }
+}
+
+class IdentifierExprNode {
+    fn init(name) {
+        this.base = ASTNode()
+        this.base.init("IDENTIFIER_EXPR")
+        this.name = name
+    }
+}
+
+class AssignExprNode {
+    fn init(name, value) {
+        this.base = ASTNode()
+        this.base.init("ASSIGN_EXPR")
+        this.name = name
+        this.value = value
+    }
+}
+
+class CallExprNode {
+    fn init(callee, args) {
+        this.base = ASTNode()
+        this.base.init("CALL_EXPR")
+        this.callee = callee // Expression node
+        this.args = args // Array of expression nodes
+    }
+}
+// ---------------------------------------------------------
+// Module: core/parser/parser.aura
+// Purpose: Recursive Descent Parser
+// Description: Consumes tokens from the Lexer and constructs
+//              the Abstract Syntax Tree (AST).
+// ---------------------------------------------------------
+
+class Parser {
+    fn init(tokens) {
+        this.tokens = tokens
+        this.current = 0
+        this.length = len(tokens)
+        
+        // Initialize token types reference
+        this.types = TokenType()
+        this.types.init()
+    }
+    
+    // ----------------------------------------
+    // Helper Methods
+    // ----------------------------------------
+    
+    fn peek() {
+        if this.current < this.length {
+            return this.tokens[this.current]
+        }
+        return this.tokens[this.length - 1] // EOF token
+    }
+    
+    fn previous() {
+        return this.tokens[this.current - 1]
+    }
+    
+    fn isAtEnd() {
+        return this.peek().type == this.types.EOF
+    }
+    
+    fn check(type) {
+        if this.isAtEnd() { return 0 }
+        return this.peek().type == type
+    }
+    
+    fn advance() {
+        if this.isAtEnd() {
+            // do nothing
+        } else {
+            this.current = this.current + 1
+        }
+        return this.previous()
+    }
+    
+    fn match(type) {
+        if this.check(type) {
+            this.advance()
+            return 1
+        }
+        return 0
+    }
+    
+    fn consume(type, message) {
+        if this.check(type) {
+            return this.advance()
+        }
+        
+        var err_tok = this.peek()
+        print("PARSE ERROR: " + message + " at line " + err_tok.position.line)
+        // TODO: Panic Mode error recovery here
+        return err_tok // Gracefully continue for now
+    }
+    
+    // ----------------------------------------
+    // Parsing Entry Point
+    // ----------------------------------------
+    
+    fn parse() {
+        var statements = []
+        
+        var loop = 1
+        while loop == 1 {
+            if this.isAtEnd() { 
+                loop = 0 
+            }
+            else {
+                var decl = this.declaration()
+                if decl.base.type != "ERROR" {
+                    array_push(statements, decl)
+                }
+            }
+        }
+        
+        var program = ProgramNode()
+        program.init()
+        program.statements = statements
+        return program
+    }
+    
+    // ----------------------------------------
+    // Declarations
+    // ----------------------------------------
+    
+    fn declaration() {
+        if this.match(this.types.VAR) {
+            return this.varDeclaration()
+        }
+        if this.match(this.types.FN) {
+            return this.functionDeclaration()
+        }
+        
+        return this.statement()
+    }
+    
+    fn varDeclaration() {
+        var nameToken = this.consume(this.types.IDENTIFIER, "Expect variable name.")
+        var initializer = LiteralExprNode()
+        initializer.init("null", "IDENTIFIER") // Default to null-ish if no initializer
+        
+        if this.match(this.types.ASSIGN) {
+            initializer = this.expression()
+        }
+        
+        // Semicolons are optional in Aura currently, but if there's one, consume it.
+        this.match(this.types.SEMICOLON)
+        
+        var decl = VarDeclNode()
+        decl.init(nameToken.text, initializer)
+        decl.base.line = nameToken.position.line
+        return decl
+    }
+    
+    fn functionDeclaration() {
+        var nameToken = this.consume(this.types.IDENTIFIER, "Expect function name.")
+        this.consume(this.types.LPAREN, "Expect '(' after function name.")
+        
+        var params = []
+        if this.check(this.types.RPAREN) {
+            // empty
+        } else {
+            var loop = 1
+            while loop == 1 {
+                var p = this.consume(this.types.IDENTIFIER, "Expect parameter name.")
+                array_push(params, p.text)
+                if this.match(this.types.COMMA) {
+                    // continue
+                } else {
+                    loop = 0
+                }
+            }
+        }
+        this.consume(this.types.RPAREN, "Expect ')' after parameters.")
+        this.consume(this.types.LBRACE, "Expect '{' before function body.")
+        
+        var body = this.blockStatement()
+        
+        var funcDecl = FunctionDeclNode()
+        funcDecl.init(nameToken.text, params, body)
+        funcDecl.base.line = nameToken.position.line
+        return funcDecl
+    }
+    
+    // ----------------------------------------
+    // Statements
+    // ----------------------------------------
+    
+    fn statement() {
+        if this.match(this.types.IF) {
+            return this.ifStatement()
+        }
+        if this.match(this.types.WHILE) {
+            return this.whileStatement()
+        }
+        if this.match(this.types.RETURN) {
+            return this.returnStatement()
+        }
+        if this.match(this.types.LBRACE) {
+            return this.blockStatement()
+        }
+        
+        return this.expressionStatement()
+    }
+    
+    fn ifStatement() {
+        var line = this.previous().position.line
+        this.consume(this.types.LPAREN, "Expect '(' after 'if'.")
+        var condition = this.expression()
+        this.consume(this.types.RPAREN, "Expect ')' after if condition.")
+        
+        var thenBranch = this.statement()
+        var elseBranch = LiteralExprNode() // Null fallback
+        elseBranch.init("null", "IDENTIFIER")
+        
+        if this.match(this.types.ELSE) {
+            elseBranch = this.statement()
+        }
+        
+        var ifNode = IfStmtNode()
+        ifNode.init(condition, thenBranch, elseBranch)
+        ifNode.base.line = line
+        return ifNode
+    }
+    
+    fn whileStatement() {
+        var line = this.previous().position.line
+        this.consume(this.types.LPAREN, "Expect '(' after 'while'.")
+        var condition = this.expression()
+        this.consume(this.types.RPAREN, "Expect ')' after condition.")
+        var body = this.statement()
+        
+        var whileNode = WhileStmtNode()
+        whileNode.init(condition, body)
+        whileNode.base.line = line
+        return whileNode
+    }
+    
+    fn returnStatement() {
+        var line = this.previous().position.line
+        var value = LiteralExprNode()
+        value.init("null", "IDENTIFIER")
+        
+        // If it's not the end of a block or file, there might be a return value
+        if this.check(this.types.SEMICOLON) {
+            // empty
+        } else {
+            if this.check(this.types.RBRACE) {
+                // empty
+            } else {
+                value = this.expression()
+            }
+        }
+        this.match(this.types.SEMICOLON)
+        
+        var retNode = ReturnStmtNode()
+        retNode.init(value)
+        retNode.base.line = line
+        return retNode
+    }
+    
+    fn blockStatement() {
+        var line = this.previous().position.line
+        var statements = []
+        
+        var loop = 1
+        while loop == 1 {
+            if this.check(this.types.RBRACE) or this.isAtEnd() {
+                loop = 0
+            } else {
+                var decl = this.declaration()
+                if decl.base.type != "ERROR" {
+                    array_push(statements, decl)
+                }
+            }
+        }
+        this.consume(this.types.RBRACE, "Expect '}' after block.")
+        
+        var blockNode = BlockStmtNode()
+        blockNode.init(statements)
+        blockNode.base.line = line
+        return blockNode
+    }
+    
+    fn expressionStatement() {
+        var expr = this.expression()
+        this.match(this.types.SEMICOLON)
+        
+        var exprStmt = ExprStmtNode()
+        exprStmt.init(expr)
+        if expr.base != 0 {
+            exprStmt.base.line = expr.base.line
+        }
+        return exprStmt
+    }
+    
+    // ----------------------------------------
+    // Expressions
+    // ----------------------------------------
+    
+    fn expression() {
+        return this.assignment()
+    }
+    
+    fn assignment() {
+        var expr = this.equality()
+        
+        if this.match(this.types.ASSIGN) {
+            var equals = this.previous()
+            var value = this.assignment()
+            
+            if expr.base.type == "IDENTIFIER_EXPR" {
+                var name = expr.name
+                var assignNode = AssignExprNode()
+                assignNode.init(name, value)
+                assignNode.base.line = equals.position.line
+                return assignNode
+            }
+            
+            print("PARSE ERROR: Invalid assignment target at line " + equals.position.line)
+        }
+        
+        return expr
+    }
+    
+    fn equality() {
+        var expr = this.comparison()
+        
+        var loop = 1
+        while loop == 1 {
+            if this.match(this.types.NEQ) or this.match(this.types.EQ) {
+                var operator = this.previous()
+                var right = this.comparison()
+                var binNode = BinaryExprNode()
+                binNode.init(expr, operator.text, right)
+                binNode.base.line = operator.position.line
+                expr = binNode
+            } else {
+                loop = 0
+            }
+        }
+        return expr
+    }
+    
+    fn comparison() {
+        var expr = this.term()
+        
+        var loop = 1
+        while loop == 1 {
+            if this.match(this.types.GT) or this.match(this.types.GTE) or this.match(this.types.LT) or this.match(this.types.LTE) {
+                var operator = this.previous()
+                var right = this.term()
+                var binNode = BinaryExprNode()
+                binNode.init(expr, operator.text, right)
+                binNode.base.line = operator.position.line
+                expr = binNode
+            } else {
+                loop = 0
+            }
+        }
+        return expr
+    }
+    
+    fn term() {
+        var expr = this.factor()
+        
+        var loop = 1
+        while loop == 1 {
+            if this.match(this.types.MINUS) or this.match(this.types.PLUS) {
+                var operator = this.previous()
+                var right = this.factor()
+                var binNode = BinaryExprNode()
+                binNode.init(expr, operator.text, right)
+                binNode.base.line = operator.position.line
+                expr = binNode
+            } else {
+                loop = 0
+            }
+        }
+        return expr
+    }
+    
+    fn factor() {
+        var expr = this.unary()
+        
+        var loop = 1
+        while loop == 1 {
+            if this.match(this.types.DIV) or this.match(this.types.MUL) {
+                var operator = this.previous()
+                var right = this.unary()
+                var binNode = BinaryExprNode()
+                binNode.init(expr, operator.text, right)
+                binNode.base.line = operator.position.line
+                expr = binNode
+            } else {
+                loop = 0
+            }
+        }
+        return expr
+    }
+    
+    fn unary() {
+        if this.match(this.types.MINUS) {
+            var operator = this.previous()
+            var right = this.unary()
+            var unNode = UnaryExprNode()
+            unNode.init(operator.text, right)
+            unNode.base.line = operator.position.line
+            return unNode
+        }
+        return this.primary()
+    }
+    
+    fn primary() {
+        if this.match(this.types.NUMBER) {
+            var lit = LiteralExprNode()
+            lit.init(this.previous().text, "NUMBER")
+            lit.base.line = this.previous().position.line
+            return lit
+        }
+        if this.match(this.types.STRING) {
+            var lit = LiteralExprNode()
+            lit.init(this.previous().text, "STRING")
+            lit.base.line = this.previous().position.line
+            return lit
+        }
+        if this.match(this.types.IDENTIFIER) {
+            var ident = IdentifierExprNode()
+            ident.init(this.previous().text)
+            ident.base.line = this.previous().position.line
+            return ident
+        }
+        
+        if this.match(this.types.LPAREN) {
+            var expr = this.expression()
+            this.consume(this.types.RPAREN, "Expect ')' after expression.")
+            return expr
+        }
+        
+        // Handle error gracefully
+        var err_tok = this.peek()
+        print("PARSE ERROR: Expect expression at line " + err_tok.position.line)
+        this.advance()
+        var errNode = LiteralExprNode()
+        errNode.init("ERROR", "ERROR")
+        return errNode
+    }
+}
+// ---------------------------------------------------------
+// Module: tests/core/parser/test_parser.aura
+// Purpose: Unit tests for the Parser module
+// ---------------------------------------------------------
+
+fn assert_node_type(node, expected_type) {
+    if node.type != expected_type {
+        print("FAIL: Expected AST node type " + expected_type + ", got " + node.type)
+        return 0
+    }
+    return 1
+}
+
+fn assert_base_type(node, expected_type) {
+    if node.base.type != expected_type {
+        print("FAIL: Expected base node type " + expected_type + ", got " + node.base.type)
+        return 0
+    }
+    return 1
+}
+
+fn test_parser() {
+    print("Running Parser Tests...")
+    var passed = 0
+    var total = 0
+    
+    // Test 1: Variable Declaration and Binary Expression
+    var code1 = "var x = 10 + 20"
+    var lex1 = Lexer()
+    lex1.init(code1)
+    var tokens1 = lex1.tokenize()
+    
+    var parser1 = Parser()
+    parser1.init(tokens1)
+    var ast1 = parser1.parse()
+    
+    print("Parsed AST1 statements length: " + len(ast1.statements))
+    if len(ast1.statements) == 0 {
+        print("Tokens1 length: " + len(tokens1))
+        var loop = 0
+        while loop < len(tokens1) {
+            print(tokens1[loop].toString())
+            loop = loop + 1
+        }
+    }
+    
+    total = total + 5
+    passed = passed + assert_base_type(ast1, "PROGRAM")
+    passed = passed + assert_base_type(ast1.statements[0], "VAR_DECL")
+    var varDecl1 = ast1.statements[0]
+    if varDecl1.name == "x" { passed = passed + 1 } else { print("FAIL var name") }
+    
+    passed = passed + assert_base_type(varDecl1.initializer, "BINARY_EXPR")
+    if varDecl1.initializer.operator == "+" { passed = passed + 1 } else { print("FAIL binop operator") }
+    
+    // Test 2: Function Declaration and Block Statement
+    var code2 = "fn add(a, b) { return a + b }"
+    var lex2 = Lexer()
+    lex2.init(code2)
+    var tokens2 = lex2.tokenize()
+    
+    var parser2 = Parser()
+    parser2.init(tokens2)
+    var ast2 = parser2.parse()
+    
+    total = total + 4
+    passed = passed + assert_base_type(ast2.statements[0], "FUNCTION_DECL")
+    var fnDecl2 = ast2.statements[0]
+    if fnDecl2.name == "add" { passed = passed + 1 } else { print("FAIL fn name") }
+    passed = passed + assert_base_type(fnDecl2.body, "BLOCK_STMT")
+    passed = passed + assert_base_type(fnDecl2.body.statements[0], "RETURN_STMT")
+    
+    // Test 3: If Statement and Assignment
+    var code3 = "if (x > 5) { y = 10 }"
+    var lex3 = Lexer()
+    lex3.init(code3)
+    var tokens3 = lex3.tokenize()
+    
+    var parser3 = Parser()
+    parser3.init(tokens3)
+    var ast3 = parser3.parse()
+    
+    total = total + 3
+    passed = passed + assert_base_type(ast3.statements[0], "IF_STMT")
+    var ifNode3 = ast3.statements[0]
+    passed = passed + assert_base_type(ifNode3.condition, "BINARY_EXPR")
+    passed = passed + assert_base_type(ifNode3.thenBranch, "BLOCK_STMT")
+    
+    print("Parser Tests Completed: " + passed + " / " + total + " passed.")
+}
+
+test_parser()

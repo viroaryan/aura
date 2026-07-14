@@ -1,0 +1,571 @@
+// ---------------------------------------------------------
+// Module: core/parser/parser.aura
+// Purpose: Recursive Descent Parser
+// Description: Consumes tokens from the Lexer and constructs
+//              the Abstract Syntax Tree (AST).
+// ---------------------------------------------------------
+
+class Parser {
+    fn init(tokens) {
+        this.tokens = tokens
+        this.current = 0
+        this.length = len(tokens)
+        
+        // Initialize token types reference
+        this.types = TokenType()
+        this.types.init()
+    }
+    
+    // ----------------------------------------
+    // Helper Methods
+    // ----------------------------------------
+    
+    fn peek() {
+        if this.current < this.length {
+            return this.tokens[this.current]
+        }
+        return this.tokens[this.length - 1] // EOF token
+    }
+    
+    fn previous() {
+        return this.tokens[this.current - 1]
+    }
+    
+    fn isAtEnd() {
+        return this.peek().type == this.types.EOF
+    }
+    
+    fn check(type) {
+        if this.isAtEnd() { return 0 }
+        return this.peek().type == type
+    }
+    
+    fn advance() {
+        if this.isAtEnd() {
+            // do nothing
+        } else {
+            this.current = this.current + 1
+        }
+        return this.previous()
+    }
+    
+    fn match(type) {
+        if this.check(type) {
+            this.advance()
+            return 1
+        }
+        return 0
+    }
+    
+    fn consume(type, message) {
+        if this.check(type) {
+            return this.advance()
+        }
+        
+        var err_tok = this.peek()
+        print("PARSE ERROR: " + message + " at line " + err_tok.position.line)
+        // TODO: Panic Mode error recovery here
+        return err_tok // Gracefully continue for now
+    }
+    
+    // ----------------------------------------
+    // Parsing Entry Point
+    // ----------------------------------------
+    
+    fn parse() {
+        var statements = []
+        
+        var loop = 1
+        while loop == 1 {
+            if this.isAtEnd() { 
+                loop = 0 
+            }
+            else {
+                var decl = this.declaration()
+                if decl.base.type != "ERROR" {
+                    array_push(statements, decl)
+                }
+            }
+        }
+        
+        var program = ProgramNode()
+        program.init()
+        program.statements = statements
+        return program
+    }
+    
+    // ----------------------------------------
+    // Declarations
+    // ----------------------------------------
+    
+    fn declaration() {
+        if this.match(this.types.CLASS) {
+            return this.classDeclaration()
+        }
+        if this.match(this.types.FN) {
+            return this.functionDeclaration()
+        }
+        if this.match(this.types.VAR) {
+            return this.varDeclaration()
+        }
+        return this.statement()
+    }
+    
+    fn classDeclaration() {
+        var nameToken = this.consume(this.types.IDENTIFIER, "Expect class name.")
+        this.consume(this.types.LBRACE, "Expect '{' before class body.")
+        var methods = []
+        
+        var loop = 1
+        while loop == 1 {
+            if this.check(this.types.RBRACE) or this.isAtEnd() {
+                loop = 0
+            } else {
+                this.consume(this.types.FN, "Expect 'fn' for method declaration.")
+                var method = this.functionDeclaration()
+                
+                var newParams = ["this"]
+                var p = 0
+                var ploop = 1
+                while ploop == 1 {
+                    if p >= len(method.params) {
+                        ploop = 0
+                    } else {
+                        array_push(newParams, method.params[p])
+                        p = p + 1
+                    }
+                }
+                method.params = newParams
+                
+                array_push(methods, method)
+            }
+        }
+        this.consume(this.types.RBRACE, "Expect '}' after class body.")
+        
+        var classNode = ClassDeclNode()
+        classNode.init(nameToken.text, methods)
+        classNode.base.line = nameToken.position.line
+        return classNode
+    }
+    
+    fn varDeclaration() {
+        var nameToken = this.consume(this.types.IDENTIFIER, "Expect variable name.")
+        var initializer = LiteralExprNode()
+        initializer.init("null", "IDENTIFIER") // Default to null-ish if no initializer
+        
+        if this.match(this.types.ASSIGN) {
+            initializer = this.expression()
+        }
+        
+        // Semicolons are optional in Aura currently, but if there's one, consume it.
+        this.match(this.types.SEMICOLON)
+        
+        var decl = VarDeclNode()
+        decl.init(nameToken.text, initializer)
+        decl.base.line = nameToken.position.line
+        return decl
+    }
+    
+    fn functionDeclaration() {
+        var nameToken = this.consume(this.types.IDENTIFIER, "Expect function name.")
+        this.consume(this.types.LPAREN, "Expect '(' after function name.")
+        
+        var params = []
+        if this.check(this.types.RPAREN) {
+            // empty
+        } else {
+            var loop = 1
+            while loop == 1 {
+                var p = this.consume(this.types.IDENTIFIER, "Expect parameter name.")
+                array_push(params, p.text)
+                if this.match(this.types.COMMA) {
+                    // continue
+                } else {
+                    loop = 0
+                }
+            }
+        }
+        this.consume(this.types.RPAREN, "Expect ')' after parameters.")
+        this.consume(this.types.LBRACE, "Expect '{' before function body.")
+        
+        var body = this.blockStatement()
+        
+        var funcDecl = FunctionDeclNode()
+        funcDecl.init(nameToken.text, params, body)
+        funcDecl.base.line = nameToken.position.line
+        return funcDecl
+    }
+    
+    // ----------------------------------------
+    // Statements
+    // ----------------------------------------
+    
+    fn statement() {
+        if this.match(this.types.IF) {
+            return this.ifStatement()
+        }
+        if this.match(this.types.WHILE) {
+            return this.whileStatement()
+        }
+        if this.match(this.types.RETURN) {
+            return this.returnStatement()
+        }
+        if this.match(this.types.LBRACE) {
+            return this.blockStatement()
+        }
+        
+        return this.expressionStatement()
+    }
+    
+    fn ifStatement() {
+        var line = this.previous().position.line
+        this.consume(this.types.LPAREN, "Expect '(' after 'if'.")
+        var condition = this.expression()
+        this.consume(this.types.RPAREN, "Expect ')' after if condition.")
+        
+        var thenBranch = this.statement()
+        var elseBranch = LiteralExprNode() // Null fallback
+        elseBranch.init("null", "IDENTIFIER")
+        
+        if this.match(this.types.ELSE) {
+            elseBranch = this.statement()
+        }
+        
+        var ifNode = IfStmtNode()
+        ifNode.init(condition, thenBranch, elseBranch)
+        ifNode.base.line = line
+        return ifNode
+    }
+    
+    fn whileStatement() {
+        var line = this.previous().position.line
+        this.consume(this.types.LPAREN, "Expect '(' after 'while'.")
+        var condition = this.expression()
+        this.consume(this.types.RPAREN, "Expect ')' after condition.")
+        var body = this.statement()
+        
+        var whileNode = WhileStmtNode()
+        whileNode.init(condition, body)
+        whileNode.base.line = line
+        return whileNode
+    }
+    
+    fn returnStatement() {
+        var line = this.previous().position.line
+        var value = LiteralExprNode()
+        value.init("null", "IDENTIFIER")
+        
+        // If it's not the end of a block or file, there might be a return value
+        if this.check(this.types.SEMICOLON) {
+            // empty
+        } else {
+            if this.check(this.types.RBRACE) {
+                // empty
+            } else {
+                value = this.expression()
+            }
+        }
+        this.match(this.types.SEMICOLON)
+        
+        var retNode = ReturnStmtNode()
+        retNode.init(value)
+        retNode.base.line = line
+        return retNode
+    }
+    
+    fn blockStatement() {
+        var line = this.previous().position.line
+        var statements = []
+        
+        var loop = 1
+        while loop == 1 {
+            if this.check(this.types.RBRACE) or this.isAtEnd() {
+                loop = 0
+            } else {
+                var decl = this.declaration()
+                if decl.base.type != "ERROR" {
+                    array_push(statements, decl)
+                }
+            }
+        }
+        this.consume(this.types.RBRACE, "Expect '}' after block.")
+        
+        var blockNode = BlockStmtNode()
+        blockNode.init(statements)
+        blockNode.base.line = line
+        return blockNode
+    }
+    
+    fn expressionStatement() {
+        var expr = this.expression()
+        this.match(this.types.SEMICOLON)
+        
+        var exprStmt = ExprStmtNode()
+        exprStmt.init(expr)
+        if expr.base != 0 {
+            exprStmt.base.line = expr.base.line
+        }
+        return exprStmt
+    }
+    
+    // ----------------------------------------
+    // Expressions
+    // ----------------------------------------
+    
+    fn expression() {
+        return this.assignment()
+    }
+    
+    fn assignment() {
+        var expr = this.equality()
+        
+        if this.match(this.types.ASSIGN) {
+            var equals = this.previous()
+            var value = this.assignment()
+            
+            if expr.base.type == "IDENTIFIER_EXPR" {
+                var name = expr.name
+                var assignNode = AssignExprNode()
+                assignNode.init(name, value)
+                assignNode.base.line = equals.position.line
+                return assignNode
+            } else if expr.base.type == "INDEX_EXPR" {
+                var assignNode = IndexAssignExprNode()
+                assignNode.init(expr.ds, expr.index, value)
+                assignNode.base.line = equals.position.line
+                return assignNode
+            } else if expr.base.type == "GET_EXPR" {
+                var assignNode = SetExprNode()
+                assignNode.init(expr.obj, expr.name, value)
+                assignNode.base.line = equals.position.line
+                return assignNode
+            }
+            
+            print("PARSE ERROR: Invalid assignment target at line " + equals.position.line)
+        }
+        
+        return expr
+    }
+    
+    fn equality() {
+        var expr = this.comparison()
+        
+        var loop = 1
+        while loop == 1 {
+            if this.match(this.types.NEQ) or this.match(this.types.EQ) {
+                var operator = this.previous()
+                var right = this.comparison()
+                var binNode = BinaryExprNode()
+                binNode.init(expr, operator.text, right)
+                binNode.base.line = operator.position.line
+                expr = binNode
+            } else {
+                loop = 0
+            }
+        }
+        return expr
+    }
+    
+    fn comparison() {
+        var expr = this.term()
+        
+        var loop = 1
+        while loop == 1 {
+            if this.match(this.types.GT) or this.match(this.types.GTE) or this.match(this.types.LT) or this.match(this.types.LTE) {
+                var operator = this.previous()
+                var right = this.term()
+                var binNode = BinaryExprNode()
+                binNode.init(expr, operator.text, right)
+                binNode.base.line = operator.position.line
+                expr = binNode
+            } else {
+                loop = 0
+            }
+        }
+        return expr
+    }
+    
+    fn term() {
+        var expr = this.factor()
+        
+        var loop = 1
+        while loop == 1 {
+            if this.match(this.types.MINUS) or this.match(this.types.PLUS) {
+                var operator = this.previous()
+                var right = this.factor()
+                var binNode = BinaryExprNode()
+                binNode.init(expr, operator.text, right)
+                binNode.base.line = operator.position.line
+                expr = binNode
+            } else {
+                loop = 0
+            }
+        }
+        return expr
+    }
+    
+    fn factor() {
+        var expr = this.unary()
+        
+        var loop = 1
+        while loop == 1 {
+            if this.match(this.types.DIV) or this.match(this.types.MUL) {
+                var operator = this.previous()
+                var right = this.unary()
+                var binNode = BinaryExprNode()
+                binNode.init(expr, operator.text, right)
+                binNode.base.line = operator.position.line
+                expr = binNode
+            } else {
+                loop = 0
+            }
+        }
+        return expr
+    }
+    
+    fn unary() {
+        if this.match(this.types.MINUS) {
+            var operator = this.previous()
+            var right = this.unary()
+            var unNode = UnaryExprNode()
+            unNode.init(operator.text, right)
+            unNode.base.line = operator.position.line
+            return unNode
+        }
+        return this.call()
+    }
+    
+    fn call() {
+        var expr = this.primary()
+        var loop = 1
+        while loop == 1 {
+            if this.match(this.types.LPAREN) {
+                expr = this.finishCall(expr)
+            } else if this.match(this.types.LBRACKET) {
+                var indexExpr = this.expression()
+                var rbracket = this.consume(this.types.RBRACKET, "Expect ']' after index.")
+                var idxNode = IndexExprNode()
+                idxNode.init(expr, indexExpr)
+                idxNode.base.line = rbracket.position.line
+                expr = idxNode
+            } else if this.match(this.types.DOT) {
+                var nameToken = this.consume(this.types.IDENTIFIER, "Expect property name after '.'.")
+                var getNode = GetExprNode()
+                getNode.init(expr, nameToken.text)
+                getNode.base.line = nameToken.position.line
+                expr = getNode
+            } else {
+                loop = 0
+            }
+        }
+        return expr
+    }
+    
+    fn finishCall(callee) {
+        var args = []
+        if this.check(this.types.RPAREN) {
+            // empty args
+        } else {
+            var loop = 1
+            while loop == 1 {
+                array_push(args, this.expression())
+                if this.match(this.types.COMMA) {
+                    // continue
+                } else {
+                    loop = 0
+                }
+            }
+        }
+        var paren = this.consume(this.types.RPAREN, "Expect ')' after arguments.")
+        var callNode = CallExprNode()
+        callNode.init(callee, args)
+        if paren.type != "ERROR" {
+            callNode.base.line = paren.position.line
+        }
+        return callNode
+    }
+    
+    fn primary() {
+        if this.match(this.types.NUMBER) {
+            var lit = LiteralExprNode()
+            lit.init(this.previous().text, "NUMBER")
+            lit.base.line = this.previous().position.line
+            return lit
+        }
+        if this.match(this.types.STRING) {
+            var lit = LiteralExprNode()
+            lit.init(this.previous().text, "STRING")
+            lit.base.line = this.previous().position.line
+            return lit
+        }
+        if this.match(this.types.IDENTIFIER) {
+            var ident = IdentifierExprNode()
+            ident.init(this.previous().text)
+            ident.base.line = this.previous().position.line
+            return ident
+        }
+        
+        if this.match(this.types.LPAREN) {
+            var expr = this.expression()
+            this.consume(this.types.RPAREN, "Expect ')' after expression.")
+            return expr
+        }
+        
+        if this.match(this.types.LBRACKET) {
+            var elements = []
+            if this.check(this.types.RBRACKET) {
+                // empty args
+            } else {
+                var loop = 1
+                while loop == 1 {
+                    array_push(elements, this.expression())
+                    if this.match(this.types.COMMA) {
+                        // continue
+                    } else {
+                        loop = 0
+                    }
+                }
+            }
+            var rbracket = this.consume(this.types.RBRACKET, "Expect ']' after array elements.")
+            var arrNode = ArrayExprNode()
+            arrNode.init(elements)
+            if rbracket.type != "ERROR" {
+                arrNode.base.line = rbracket.position.line
+            }
+            return arrNode
+        }
+        
+        if this.match(this.types.NEW) {
+            var nameToken = this.consume(this.types.IDENTIFIER, "Expect class name after 'new'.")
+            this.consume(this.types.LPAREN, "Expect '(' after class name.")
+            var args = []
+            if this.check(this.types.RPAREN) {
+                // empty args
+            } else {
+                var loop = 1
+                while loop == 1 {
+                    array_push(args, this.expression())
+                    if this.match(this.types.COMMA) {
+                        // continue
+                    } else {
+                        loop = 0
+                    }
+                }
+            }
+            this.consume(this.types.RPAREN, "Expect ')' after arguments.")
+            
+            var newNode = NewExprNode()
+            newNode.init(nameToken.text, args)
+            newNode.base.line = nameToken.position.line
+            return newNode
+        }
+        
+        // Handle error gracefully
+        var err_tok = this.peek()
+        print("PARSE ERROR: Expect expression at line " + err_tok.position.line)
+        this.advance()
+        var errNode = LiteralExprNode()
+        errNode.init("ERROR", "ERROR")
+        return errNode
+    }
+}

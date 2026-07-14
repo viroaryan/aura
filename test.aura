@@ -1,4 +1,44 @@
-var a = 50
-var b = 100
-var c = a * b + 25
-print(c)
+// Aura Language - Full Feature Test
+// This compiles to NATIVE x86-64 without any C++ engine!
+
+fn square(x) {
+    return x * x
+}
+
+fn add(a, b) {
+    return a + b
+}
+
+// Variables and Math
+var result = add(10, 20)
+print(result)
+
+// Function calls
+var sq = square(7)
+print(sq)
+
+// If-Else
+var score = 85
+if (score > 90) {
+    print(1)
+} else {
+    print(0)
+}
+
+// While Loop — Sum of 1 to 10
+var sum = 0
+var i = 1
+while (i <= 10) {
+    sum = sum + i
+    i = i + 1
+}
+print(sum)
+
+// Nested: Factorial of 5 using a loop
+var fact = 1
+var n = 5
+while (n > 1) {
+    fact = fact * n
+    n = n - 1
+}
+print(fact)

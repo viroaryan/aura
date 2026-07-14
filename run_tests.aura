@@ -1,0 +1,436 @@
+// ---------------------------------------------------------
+// Module: core/parser/lexer.aura
+// Purpose: High-performance tokenizer for the Aura language
+// Description: Converts raw source code text into a stream of 
+//              Tokens for the parser. Handles unicode, errors, 
+//              and source mapping (lines/columns).
+// ---------------------------------------------------------
+
+// ----------------------------------------
+// Token Types (Enum Simulation)
+// ----------------------------------------
+// Represents the category of a lexical token.
+
+class TokenType {
+    fn init() {
+        // Keywords
+        this.FN = "FN"
+        this.VAR = "VAR"
+        this.IF = "IF"
+        this.ELSE = "ELSE"
+        this.WHILE = "WHILE"
+        this.RETURN = "RETURN"
+        this.CLASS = "CLASS"
+        
+        // Literals
+        this.IDENTIFIER = "IDENTIFIER"
+        this.NUMBER = "NUMBER"
+        this.STRING = "STRING"
+        
+        // Operators & Symbols
+        this.PLUS = "PLUS"
+        this.MINUS = "MINUS"
+        this.MUL = "MUL"
+        this.DIV = "DIV"
+        this.ASSIGN = "ASSIGN"
+        this.EQ = "EQ"
+        this.NEQ = "NEQ"
+        this.LT = "LT"
+        this.GT = "GT"
+        this.LTE = "LTE"
+        this.GTE = "GTE"
+        
+        // Punctuation
+        this.LPAREN = "LPAREN"
+        this.RPAREN = "RPAREN"
+        this.LBRACE = "LBRACE"
+        this.RBRACE = "RBRACE"
+        this.COMMA = "COMMA"
+        this.DOT = "DOT"
+        this.SEMICOLON = "SEMICOLON"
+        
+        // End of File
+        this.EOF = "EOF"
+        // Error Token (for graceful error recovery)
+        this.ERROR = "ERROR"
+    }
+}
+
+// ----------------------------------------
+// Source Position
+// ----------------------------------------
+// Tracks line and column numbers for precise error reporting.
+
+class SourcePosition {
+    fn init(line, column) {
+        this.line = line
+        this.column = column
+    }
+}
+
+// ----------------------------------------
+// Token
+// ----------------------------------------
+// A single lexical unit containing its type, raw text, and position.
+
+class Token {
+    fn init(type, text, line, column) {
+        this.type = type
+        this.text = text
+        this.position = SourcePosition()
+        this.position.init(line, column)
+    }
+    
+    fn toString() {
+        return "Token(" + this.type + ", '" + this.text + "', line " + this.position.line + ")"
+    }
+}
+
+fn createToken(type, text, line, column) {
+    var t = Token()
+    t.init(type, text, line, column)
+    return t
+}
+
+// ----------------------------------------
+// Lexer
+// ----------------------------------------
+// The main scanner class.
+
+class Lexer {
+    fn init(source) {
+        this.source = source
+        this.pos = 0
+        this.length = len(source)
+        this.line = 1
+        this.column = 1
+        
+        // Initialize token types cache
+        this.types = TokenType()
+        this.types.init()
+    }
+    
+    // ----------------------------------------
+    // Core Helper Methods
+    // ----------------------------------------
+
+    fn peek() {
+        if this.pos < this.length { 
+            return string_char_at(this.source, this.pos) 
+        }
+        return ""
+    }
+    
+    fn peekNext() {
+        if this.pos + 1 < this.length {
+            return string_char_at(this.source, this.pos + 1)
+        }
+        return ""
+    }
+
+    fn advance() {
+        var ch = this.peek()
+        this.pos = this.pos + 1
+        if ch == string_char_at("\n", 0) {
+            this.line = this.line + 1
+            this.column = 1
+        } else {
+            this.column = this.column + 1
+        }
+        return ch
+    }
+
+    fn skipWhitespaceAndComments() {
+        var loop = 1
+        while loop == 1 {
+            var ch = this.peek()
+            
+            // Skip Whitespace
+            if char_is_space(ch) {
+                this.advance()
+            } 
+            // Skip Line Comments (//)
+            else if ch == "/" and this.peekNext() == "/" {
+                var innerLoop = 1
+                while innerLoop == 1 {
+                    var c = this.peek()
+                    if c == "" { innerLoop = 0 }
+                    else if c == string_char_at("\n", 0) { innerLoop = 0 }
+                    else { this.advance() }
+                }
+            } 
+            // Neither whitespace nor comment, so break
+            else {
+                loop = 0
+            }
+        }
+    }
+
+    // ----------------------------------------
+    // Tokenization Logic
+    // ----------------------------------------
+
+    fn tokenize() {
+        var tokens = []
+        var loop = 1
+        
+        while loop == 1 {
+            this.skipWhitespaceAndComments()
+            
+            if this.pos >= this.length { 
+                loop = 0 
+            } else {
+                var start_col = this.column
+                var ch = this.peek()
+                
+                // Numbers
+                if char_is_digit(ch) {
+                    var num = ""
+                    var inner = 1
+                    while inner == 1 {
+                        var c = this.peek()
+                        if c == "" { inner = 0 }
+                        else if char_is_digit(c) { num = num + this.advance() }
+                        // Handle decimals (simplified for now)
+                        else if c == "." and char_is_digit(this.peekNext()) { 
+                            num = num + this.advance() 
+                        }
+                        else { inner = 0 }
+                    }
+                    array_push(tokens, createToken(this.types.NUMBER, num, this.line, start_col))
+                } 
+                // Identifiers & Keywords
+                else if char_is_alpha(ch) {
+                    var word = ""
+                    var inner = 1
+                    while inner == 1 {
+                        var c = this.peek()
+                        if c == "" { inner = 0 }
+                        else if char_is_alpha(c) or char_is_digit(c) or c == "_" { 
+                            word = word + this.advance() 
+                        }
+                        else { inner = 0 }
+                    }
+                    
+                    // Keyword Matching
+                    if word == "fn" { array_push(tokens, createToken(this.types.FN, word, this.line, start_col)) }
+                    else if word == "var" { array_push(tokens, createToken(this.types.VAR, word, this.line, start_col)) }
+                    else if word == "if" { array_push(tokens, createToken(this.types.IF, word, this.line, start_col)) }
+                    else if word == "else" { array_push(tokens, createToken(this.types.ELSE, word, this.line, start_col)) }
+                    else if word == "while" { array_push(tokens, createToken(this.types.WHILE, word, this.line, start_col)) }
+                    else if word == "return" { array_push(tokens, createToken(this.types.RETURN, word, this.line, start_col)) }
+                    else if word == "class" { array_push(tokens, createToken(this.types.CLASS, word, this.line, start_col)) }
+                    else { 
+                        array_push(tokens, createToken(this.types.IDENTIFIER, word, this.line, start_col)) 
+                    }
+                } 
+                // Strings
+                else if ch == "\"" {
+                    this.advance() // Consume opening quote
+                    var str_val = ""
+                    var inner = 1
+                    var is_closed = false
+                    while inner == 1 {
+                        var c = this.peek()
+                        if c == "" { inner = 0 } // EOF before closing quote
+                        else if c == "\"" { 
+                            this.advance() // Consume closing quote
+                            is_closed = true
+                            inner = 0 
+                        }
+                        else if c == "\\" { // Handle escapes
+                            this.advance()
+                            var escape_char = this.advance()
+                            if escape_char == "n" { str_val = str_val + string_char_at("\n", 0) }
+                            else if escape_char == "t" { str_val = str_val + string_char_at("\t", 0) }
+                            else if escape_char == "\\" { str_val = str_val + "\\" }
+                            else if escape_char == "\"" { str_val = str_val + "\"" }
+                            else { str_val = str_val + "\\" + escape_char }
+                        }
+                        else { str_val = str_val + this.advance() }
+                    }
+                    if is_closed {
+                        array_push(tokens, createToken(this.types.STRING, str_val, this.line, start_col))
+                    } else {
+                        array_push(tokens, createToken(this.types.ERROR, "Unterminated string", this.line, start_col))
+                    }
+                }
+                // Operators and Punctuation
+                else if ch == "=" {
+                    this.advance()
+                    if this.peek() == "=" {
+                        this.advance()
+                        array_push(tokens, createToken(this.types.EQ, "==", this.line, start_col))
+                    } else {
+                        array_push(tokens, createToken(this.types.ASSIGN, "=", this.line, start_col))
+                    }
+                }
+                else if ch == "!" {
+                    this.advance()
+                    if this.peek() == "=" {
+                        this.advance()
+                        array_push(tokens, createToken(this.types.NEQ, "!=", this.line, start_col))
+                    } else {
+                        array_push(tokens, createToken(this.types.ERROR, "Unexpected '!'", this.line, start_col))
+                    }
+                }
+                else if ch == "<" {
+                    this.advance()
+                    if this.peek() == "=" {
+                        this.advance()
+                        array_push(tokens, createToken(this.types.LTE, "<=", this.line, start_col))
+                    } else {
+                        array_push(tokens, createToken(this.types.LT, "<", this.line, start_col))
+                    }
+                }
+                else if ch == ">" {
+                    this.advance()
+                    if this.peek() == "=" {
+                        this.advance()
+                        array_push(tokens, createToken(this.types.GTE, ">=", this.line, start_col))
+                    } else {
+                        array_push(tokens, createToken(this.types.GT, ">", this.line, start_col))
+                    }
+                }
+                else if ch == "+" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.PLUS, "+", this.line, start_col)) 
+                }
+                else if ch == "-" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.MINUS, "-", this.line, start_col)) 
+                }
+                else if ch == "*" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.MUL, "*", this.line, start_col)) 
+                }
+                else if ch == "/" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.DIV, "/", this.line, start_col)) 
+                }
+                else if ch == "(" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.LPAREN, "(", this.line, start_col)) 
+                }
+                else if ch == ")" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.RPAREN, ")", this.line, start_col)) 
+                }
+                else if ch == "{" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.LBRACE, "{", this.line, start_col)) 
+                }
+                else if ch == "}" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.RBRACE, "}", this.line, start_col)) 
+                }
+                else if ch == "," { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.COMMA, ",", this.line, start_col)) 
+                }
+                else if ch == "." { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.DOT, ".", this.line, start_col)) 
+                }
+                else if ch == ";" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.SEMICOLON, ";", this.line, start_col)) 
+                }
+                // Unhandled character
+                else {
+                    var bad = this.advance()
+                    array_push(tokens, createToken(this.types.ERROR, bad, this.line, start_col))
+                }
+            }
+        }
+        
+        array_push(tokens, createToken(this.types.EOF, "", this.line, this.column))
+        return tokens
+    }
+}
+// ---------------------------------------------------------
+// Module: tests/core/parser/test_lexer.aura
+// Purpose: Unit tests for the Lexer module
+// ---------------------------------------------------------
+
+// We must include the lexer source since Aura currently doesn't have an import system
+var lexer_source = file_read("src/core/parser/lexer.aura")
+// wait, we can't 'eval' easily unless we just compile them together.
+// For now, let's write the test cases that we will append to the end of lexer.aura during testing, 
+// or run directly using the aot_compiler if it supports multiple files.
+// Since AOT compiler only takes one file right now, we will test by concatenating.
+
+fn assert_token(token, expected_type, expected_text) {
+    if token.type != expected_type {
+        print("FAIL: Expected type " + expected_type + ", got " + token.type)
+        return 0
+    }
+    if token.text != expected_text {
+        print("FAIL: Expected text '" + expected_text + "', got '" + token.text + "'")
+        return 0
+    }
+    return 1
+}
+
+fn test_lexer() {
+    print("Running Lexer Tests...")
+    var passed = 0
+    var total = 0
+    
+    // Test 1: Keywords and Identifiers
+    var code1 = "fn myFunc() { var x = 10 }"
+    var lex1 = Lexer()
+    lex1.init(code1)
+    var tokens1 = lex1.tokenize()
+    // fn, myFunc, (, ), {, var, x, =, 10, }, EOF -> 11 tokens
+    
+    total = total + 5
+    passed = passed + assert_token(tokens1[0], "FN", "fn")
+    passed = passed + assert_token(tokens1[1], "IDENTIFIER", "myFunc")
+    passed = passed + assert_token(tokens1[4], "LBRACE", "{")
+    passed = passed + assert_token(tokens1[7], "ASSIGN", "=")
+    passed = passed + assert_token(tokens1[8], "NUMBER", "10")
+    
+    // Test 2: Strings and Escapes
+    var code2 = "\"hello\\nworld\""
+    var lex2 = Lexer()
+    lex2.init(code2)
+    var tokens2 = lex2.tokenize()
+    total = total + 1
+    // "\n" is one newline character
+    passed = passed + assert_token(tokens2[0], "STRING", "hello\nworld")
+    
+    // Test 3: Operators and multi-char punctuation
+    var code3 = "a != b <= c >= d == e"
+    var lex3 = Lexer()
+    lex3.init(code3)
+    var tokens3 = lex3.tokenize()
+    total = total + 4
+    passed = passed + assert_token(tokens3[1], "NEQ", "!=")
+    passed = passed + assert_token(tokens3[3], "LTE", "<=")
+    passed = passed + assert_token(tokens3[5], "GTE", ">=")
+    passed = passed + assert_token(tokens3[7], "EQ", "==")
+
+    // Test 4: Comments and Whitespace
+    var code4 = "  // skip this\nvar y = 2"
+    var lex4 = Lexer()
+    lex4.init(code4)
+    var tokens4 = lex4.tokenize()
+    total = total + 2
+    passed = passed + assert_token(tokens4[0], "VAR", "var")
+    passed = passed + assert_token(tokens4[1], "IDENTIFIER", "y")
+    
+    // Test 5: Source mapping (Line/Col)
+    var code5 = "x\ny\n  z"
+    var lex5 = Lexer()
+    lex5.init(code5)
+    var tokens5 = lex5.tokenize()
+    total = total + 3
+    if tokens5[0].position.line == 1 { passed = passed + 1 } else { print("FAIL Line 1") }
+    if tokens5[1].position.line == 2 { passed = passed + 1 } else { print("FAIL Line 2") }
+    if tokens5[2].position.line == 3 { passed = passed + 1 } else { print("FAIL Line 3") }
+
+    print("Lexer Tests Completed: " + passed + " / " + total + " passed.")
+}
+
+test_lexer()

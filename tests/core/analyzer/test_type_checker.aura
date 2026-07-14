@@ -1,0 +1,83 @@
+// ---------------------------------------------------------
+// Module: tests/core/analyzer/test_type_checker.aura
+// Purpose: Unit tests for the Type Checker module
+// ---------------------------------------------------------
+
+fn test_type_checker() {
+    print("Running Type Checker Tests...")
+    var passed = 0
+    var total = 0
+    
+    // Valid Code Test
+    var code1 = "
+        fn add(a, b) { return a + b; }
+        var x = 10;
+        var y = 20;
+        var z = add(x, y);
+    "
+    
+    var lex1 = Lexer()
+    lex1.init(code1)
+    var parser1 = Parser()
+    parser1.init(lex1.tokenize())
+    var ast1 = parser1.parse()
+    
+    var checker1 = TypeChecker()
+    checker1.init()
+    checker1.check(ast1)
+    
+    total = total + 1
+    if len(checker1.errors) == 0 { passed = passed + 1 } else { print("FAIL: Expected 0 errors in valid code") }
+    
+    // Invalid Code Test 1: Undefined Variable
+    var code2 = "
+        var x = 10;
+        y = x + 5;
+    "
+    
+    var lex2 = Lexer()
+    lex2.init(code2)
+    var parser2 = Parser()
+    parser2.init(lex2.tokenize())
+    var ast2 = parser2.parse()
+    
+    var checker2 = TypeChecker()
+    checker2.init()
+    checker2.check(ast2)
+    
+    total = total + 1
+    if len(checker2.errors) == 1 { 
+        passed = passed + 1 
+    } else { 
+        print("FAIL: Expected 1 error for undefined variable 'y', got: " + len(checker2.errors))
+        // Debug prints
+        var k = 0
+        while k < len(checker2.errors) {
+            print(checker2.errors[k])
+            k = k + 1
+        }
+    }
+    
+    // Invalid Code Test 2: Double definition
+    var code3 = "
+        var a = 1;
+        var a = 2;
+    "
+    
+    var lex3 = Lexer()
+    lex3.init(code3)
+    var parser3 = Parser()
+    parser3.init(lex3.tokenize())
+    var ast3 = parser3.parse()
+    
+    var checker3 = TypeChecker()
+    checker3.init()
+    checker3.check(ast3)
+    
+    total = total + 1
+    if len(checker3.errors) == 1 { passed = passed + 1 } else { print("FAIL: Expected 1 error for double definition") }
+    
+    print("Type Checker Tests Completed: " + passed + " / " + total + " passed.")
+}
+
+test_type_checker()

@@ -1,0 +1,69 @@
+// ---------------------------------------------------------
+// Module: aurac.aura
+// Purpose: Main AOT Compiler Executable (Phase 3)
+// Description: Compiles a .aura source file into an x86-64 
+//              assembly file (.s) compatible with GCC.
+// ---------------------------------------------------------
+
+fn main() {
+    print("---------------------------------------------")
+    print("Aura Native AOT Compiler v1.0 (x86-64)")
+    print("---------------------------------------------")
+    
+    // We will hardcode the source and destination for Phase 3 Validation
+    // Future iterations will pull from sys.argv
+    var sourceFile = "build_aurac.aura"
+    var outFile = "main.s"
+    
+    print("Compiling: " + sourceFile + " -> " + outFile)
+    
+    // Read source code
+    var code = file_read(sourceFile)
+    
+    // Phase 1: Lexing
+    var lexer = Lexer()
+    lexer.init(code)
+    var tokens = lexer.tokenize()
+    
+    // Phase 1: Parsing
+    var parser = Parser()
+    parser.init(tokens)
+    var ast = parser.parse()
+    
+    // Phase 2: Semantic Analysis (Type Checking)
+    var checker = TypeChecker()
+    checker.init()
+    checker.check(ast)
+    
+    if (len(checker.errors) > 0) {
+        print("")
+        print("COMPILATION FAILED: Semantic Errors Detected")
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(checker.errors) {
+                loop = 0
+            } else {
+                print(" -> " + checker.errors[i])
+                i = i + 1
+            }
+        }
+        return 0
+    }
+    
+    // Phase 3: x86-64 Assembly Generation
+    var compiler = X64Compiler()
+    compiler.init()
+    var asm = compiler.compile(ast)
+    
+    // Write assembly to output file
+    file_write(outFile, asm)
+    
+    print("Successfully compiled to " + outFile)
+    print("To assemble and run, execute:")
+    print("  gcc " + outFile + " -o " + outFile + ".exe")
+    print("  .\\" + outFile + ".exe")
+    print("---------------------------------------------")
+}
+
+main()

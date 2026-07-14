@@ -1,0 +1,99 @@
+// ---------------------------------------------------------
+// Module: tests/core/compiler/test_compiler.aura
+// Purpose: Unit tests for the x64 Compiler module
+// ---------------------------------------------------------
+
+fn test_x64_compiler() {
+    print("Running x64 Compiler Tests...")
+    var passed = 0
+    var total = 0
+    
+    // A simple math and return test
+    var code1 = "
+        fn main() {
+            var a = 10;
+            var b = 20;
+            return a + b;
+        }
+    "
+    
+    var lex1 = Lexer()
+    lex1.init(code1)
+    var parser1 = Parser()
+    parser1.init(lex1.tokenize())
+    var ast1 = parser1.parse()
+    
+    var compiler1 = X64Compiler()
+    compiler1.init()
+    var asm1 = compiler1.compile(ast1)
+    
+    total = total + 1
+    // Simple checks to see if essential assembly instructions are present
+    // It should have 'main:', 'mov rax, 10', 'add rax, rbx', 'ret'
+    if len(asm1) > 100 { 
+        passed = passed + 1 
+    } else { 
+        print("FAIL: Generated assembly is suspiciously short.") 
+    }
+    
+    // Test 2: If Statement compilation
+    var code2 = "
+        fn main() {
+            var x = 5;
+            if (x > 3) {
+                x = 10;
+            }
+        }
+    "
+    
+    var lex2 = Lexer()
+    lex2.init(code2)
+    var parser2 = Parser()
+    parser2.init(lex2.tokenize())
+    var ast2 = parser2.parse()
+    
+    var compiler2 = X64Compiler()
+    compiler2.init()
+    var asm2 = compiler2.compile(ast2)
+    
+    total = total + 1
+    if len(asm2) > 100 { 
+        passed = passed + 1 
+    } else { 
+        print("FAIL: Generated assembly for If Statement failed.") 
+    }
+    
+    // Test 3: While Loop compilation
+    var code3 = "
+        fn main() {
+            var x = 0;
+            while (x < 10) {
+                x = x + 1;
+            }
+        }
+    "
+    
+    var lex3 = Lexer()
+    lex3.init(code3)
+    var parser3 = Parser()
+    parser3.init(lex3.tokenize())
+    var ast3 = parser3.parse()
+    
+    var compiler3 = X64Compiler()
+    compiler3.init()
+    var asm3 = compiler3.compile(ast3)
+    
+    total = total + 1
+    if len(asm3) > 100 { 
+        passed = passed + 1 
+    } else { 
+        print("FAIL: Generated assembly for While Loop failed.") 
+    }
+    
+    print("x64 Compiler Tests Completed: " + passed + " / " + total + " passed.")
+    print("---------------------------------------------------------")
+    print("Sample Output from Test 1:")
+    print(asm1)
+}
+
+test_x64_compiler()

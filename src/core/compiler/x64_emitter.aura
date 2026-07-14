@@ -1,0 +1,522 @@
+// ---------------------------------------------------------
+// Module: core/compiler/x64_emitter.aura
+// Purpose: AST to x86-64 Assembly Compiler
+// Description: Traverses the AST and emits NASM/FASM 
+//              compatible x86-64 assembly code.
+// ---------------------------------------------------------
+
+class X64Compiler {
+    fn init() {
+        this.asm = ""
+        this.labelCount = 0
+        this.symTable = SymbolTable()
+        this.symTable.init()
+        
+        // Track variable stack offsets mapping: Name -> Offset
+        // Local variables are stored on the stack relative to RBP.
+        this.varNames = []
+        this.varOffsets = []
+        this.currentOffset = 0
+        this.stringLiterals = []
+        this.propertyOffsets = [] // Global property table for OOP
+    }
+    
+    fn emit(line) {
+        this.asm = this.asm + line + "\n"
+    }
+    
+    fn newLabel() {
+        this.labelCount = this.labelCount + 1
+        return ".L" + this.labelCount
+    }
+    
+    // Manage stack offsets
+    fn getPropertyOffset(name) {
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(this.propertyOffsets) {
+                loop = 0
+            } else {
+                if this.propertyOffsets[i] == name {
+                    return i * 8
+                }
+                i = i + 1
+            }
+        }
+        array_push(this.propertyOffsets, name)
+        return (len(this.propertyOffsets) - 1) * 8
+    }
+    
+    fn addVariable(name) {
+        this.currentOffset = this.currentOffset - 8
+        array_push(this.varNames, name)
+        array_push(this.varOffsets, this.currentOffset)
+        return this.currentOffset
+    }
+    
+    fn getVariableOffset(name) {
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(this.varNames) {
+                loop = 0
+            } else {
+                if this.varNames[i] == name {
+                    return this.varOffsets[i]
+                }
+                i = i + 1
+            }
+        }
+        return 0 // Error/Global
+    }
+    
+    // ----------------------------------------
+    // Compilation Entry Point
+    // ----------------------------------------
+    
+    fn compile(ast) {
+        // Standard Prologue for executable (GAS Intel Syntax)
+        this.emit(".intel_syntax noprefix")
+        this.emit(".global main")
+        this.emit(".extern puts")
+        this.emit(".extern malloc")
+        this.emit(".extern WSAStartup")
+        this.emit(".extern socket")
+        this.emit(".extern bind")
+        this.emit(".extern listen")
+        this.emit(".extern accept")
+        this.emit(".extern recv")
+        this.emit(".extern send")
+        this.emit(".extern closesocket")
+        
+        this.emit(".extern CreateFileA")
+        this.emit(".extern ReadFile")
+        this.emit(".extern WriteFile")
+        this.emit(".extern CloseHandle")
+        
+        this.emit(".text")
+        this.emit("")
+        
+        if ast.base.type == "PROGRAM" {
+            this.compileProgram(ast)
+        }
+        
+        return this.asm
+    }
+    
+    fn compileProgram(node) {
+        // Compile standalone functions and classes
+        var j = 0
+        var floop = 1
+        while floop == 1 {
+            if j >= len(node.statements) {
+                floop = 0
+            } else {
+                var fstmt = node.statements[j]
+                if fstmt.base.type == "FUNCTION_DECL" {
+                    this.compileFunction(fstmt)
+                }
+                if fstmt.base.type == "CLASS_DECL" {
+                    this.compileClass(fstmt)
+                }
+                j = j + 1
+            }
+        }
+        
+        // Emit .data segment for strings
+        if len(this.stringLiterals) > 0 {
+            this.emit(".data")
+            var s = 0
+            while s < len(this.stringLiterals) {
+                this.emit(".L_str_" + s + ":")
+                this.emit("    .asciz \"" + this.stringLiterals[s] + "\"")
+                s = s + 1
+            }
+        }
+    }
+    
+    // ----------------------------------------
+    // Statements
+    // ----------------------------------------
+    
+    fn compileClass(node) {
+        // Emit Class Init function
+        this.emit(node.name + "_init:")
+        this.emit("    push rbp")
+        this.emit("    mov rbp, rsp")
+        this.emit("    sub rsp, 32")
+        this.emit("    mov QWORD PTR [rbp-8], rcx") // save obj ptr
+        
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.methods) {
+                loop = 0
+            } else {
+                var method = node.methods[i]
+                var offset = this.getPropertyOffset(method.name)
+                this.emit("    lea rdx, " + node.name + "_" + method.name + "[rip]")
+                this.emit("    mov rcx, QWORD PTR [rbp-8]")
+                this.emit("    mov QWORD PTR [rcx + " + offset + "], rdx")
+                i = i + 1
+            }
+        }
+        
+        this.emit("    mov rsp, rbp")
+        this.emit("    pop rbp")
+        this.emit("    ret")
+        
+        // Compile methods
+        var k = 0
+        var kloop = 1
+        while kloop == 1 {
+            if k >= len(node.methods) {
+                kloop = 0
+            } else {
+                var method = node.methods[k]
+                method.name = node.name + "_" + method.name
+                this.compileFunction(method)
+                k = k + 1
+            }
+        }
+    }
+    
+    fn compileStatement(node) {
+        if node.base.type == "VAR_DECL" { return this.compileVarDecl(node) }
+        if node.base.type == "BLOCK_STMT" { return this.compileBlockStmt(node) }
+        if node.base.type == "IF_STMT" { return this.compileIfStmt(node) }
+        if node.base.type == "WHILE_STMT" { return this.compileWhileStmt(node) }
+        if node.base.type == "RETURN_STMT" { return this.compileReturnStmt(node) }
+        if node.base.type == "EXPR_STMT" { return this.compileExprStmt(node) }
+    }
+    
+    fn compileFunction(node) {
+        this.emit(node.name + ":")
+        this.emit("    push rbp")
+        this.emit("    mov rbp, rsp")
+        this.emit("    sub rsp, 128") // Stack space + shadow space
+        
+        // Load arguments from registers (Windows MS ABI: rcx, rdx, r8, r9)
+        var registers = ["rcx", "rdx", "r8", "r9"]
+        
+        // We reset local offset for each function
+        this.varNames = []
+        this.varOffsets = []
+        this.currentOffset = 0
+        
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.params) {
+                loop = 0
+            } else {
+                var offset = this.addVariable(node.params[i])
+                // Store param into stack
+                if i < 4 {
+                    this.emit("    mov QWORD PTR [rbp" + offset + "], " + registers[i])
+                }
+                i = i + 1
+            }
+        }
+        
+        this.compileStatement(node.body)
+        
+        this.emit("    mov rsp, rbp")
+        this.emit("    pop rbp")
+        this.emit("    ret")
+    }
+    
+    fn compileVarDecl(node) {
+        if node.initializer.base.type != "LITERAL_EXPR" or node.initializer.value != "null" {
+            this.compileExpression(node.initializer)
+        } else {
+            this.emit("    mov rax, 0")
+        }
+        
+        var offset = this.addVariable(node.name)
+        // Store RAX into the variable's stack slot
+        this.emit("    mov QWORD PTR [rbp" + offset + "], rax")
+    }
+    
+    fn compileBlockStmt(node) {
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.statements) {
+                loop = 0
+            } else {
+                this.compileStatement(node.statements[i])
+                i = i + 1
+            }
+        }
+    }
+    
+    fn compileIfStmt(node) {
+        var elseLabel = this.newLabel()
+        var endLabel = this.newLabel()
+        
+        // Evaluate condition (result in RAX)
+        this.compileExpression(node.condition)
+        this.emit("    cmp rax, 0")
+        this.emit("    je " + elseLabel)
+        
+        this.compileStatement(node.thenBranch)
+        this.emit("    jmp " + endLabel)
+        
+        this.emit(elseLabel + ":")
+        if node.elseBranch.base.type != "LITERAL_EXPR" or node.elseBranch.value != "null" {
+            this.compileStatement(node.elseBranch)
+        }
+        this.emit(endLabel + ":")
+    }
+    
+    fn compileWhileStmt(node) {
+        var startLabel = this.newLabel()
+        var endLabel = this.newLabel()
+        
+        this.emit(startLabel + ":")
+        this.compileExpression(node.condition)
+        this.emit("    cmp rax, 0")
+        this.emit("    je " + endLabel)
+        
+        this.compileStatement(node.body)
+        this.emit("    jmp " + startLabel)
+        
+        this.emit(endLabel + ":")
+    }
+    
+    fn compileReturnStmt(node) {
+        if node.value.base.type != "LITERAL_EXPR" or node.value.value != "null" {
+            this.compileExpression(node.value)
+        } else {
+            this.emit("    mov rax, 0")
+        }
+        this.emit("    mov rsp, rbp")
+        this.emit("    pop rbp")
+        this.emit("    ret")
+    }
+    
+    fn compileExprStmt(node) {
+        this.compileExpression(node.expression)
+    }
+    
+    // ----------------------------------------
+    // Expressions
+    // ----------------------------------------
+    
+    fn compileExpression(node) {
+        if node.base.type == "BINARY_EXPR" { return this.compileBinaryExpr(node) }
+        if node.base.type == "UNARY_EXPR" { return this.compileUnaryExpr(node) }
+        if node.base.type == "LITERAL_EXPR" { return this.compileLiteralExpr(node) }
+        if node.base.type == "IDENTIFIER_EXPR" { return this.compileIdentifierExpr(node) }
+        if node.base.type == "ASSIGN_EXPR" { return this.compileAssignExpr(node) }
+        if node.base.type == "CALL_EXPR" { return this.compileCallExpr(node) }
+        if node.base.type == "ARRAY_EXPR" { return this.compileArrayExpr(node) }
+        if node.base.type == "INDEX_EXPR" { return this.compileIndexExpr(node) }
+        if node.base.type == "INDEX_ASSIGN_EXPR" { return this.compileIndexAssignExpr(node) }
+        if node.base.type == "GET_EXPR" { return this.compileGetExpr(node) }
+        if node.base.type == "SET_EXPR" { return this.compileSetExpr(node) }
+        if node.base.type == "NEW_EXPR" { return this.compileNewExpr(node) }
+    }
+    
+    fn compileBinaryExpr(node) {
+        // Compile left side first, save RAX by pushing to stack
+        this.compileExpression(node.left)
+        this.emit("    push rax")
+        
+        // Compile right side into RAX
+        this.compileExpression(node.right)
+        
+        // Move right side to RBX, pop left side to RAX
+        this.emit("    mov rbx, rax")
+        this.emit("    pop rax")
+        
+        if node.operator == "+" {
+            this.emit("    add rax, rbx")
+        } else if node.operator == "-" {
+            this.emit("    sub rax, rbx")
+        } else if node.operator == "*" {
+            this.emit("    imul rax, rbx")
+        } else if node.operator == "/" {
+            this.emit("    cqo")
+            this.emit("    idiv rbx")
+        } else if node.operator == "==" {
+            this.emit("    cmp rax, rbx")
+            this.emit("    sete al")
+            this.emit("    movzx rax, al")
+        } else if node.operator == "!=" {
+            this.emit("    cmp rax, rbx")
+            this.emit("    setne al")
+            this.emit("    movzx rax, al")
+        } else if node.operator == "<" {
+            this.emit("    cmp rax, rbx")
+            this.emit("    setl al")
+            this.emit("    movzx rax, al")
+        } else if node.operator == ">" {
+            this.emit("    cmp rax, rbx")
+            this.emit("    setg al")
+            this.emit("    movzx rax, al")
+        }
+    }
+    
+    fn compileUnaryExpr(node) {
+        this.compileExpression(node.right)
+        if node.operator == "-" {
+            this.emit("    neg rax")
+        }
+    }
+    
+    fn compileLiteralExpr(node) {
+        if node.literalType == "NUMBER" {
+            this.emit("    mov rax, " + node.value)
+        } else if node.literalType == "STRING" {
+            var idx = len(this.stringLiterals)
+            array_push(this.stringLiterals, node.value)
+            this.emit("    lea rax, .L_str_" + idx + "[rip]")
+        }
+    }
+    
+    fn compileIdentifierExpr(node) {
+        var offset = this.getVariableOffset(node.name)
+        if offset != 0 {
+            this.emit("    mov rax, QWORD PTR [rbp" + offset + "]")
+        } else {
+            // Unresolved variable fallback
+            this.emit("    mov rax, 0")
+        }
+    }
+    
+    fn compileAssignExpr(node) {
+        this.compileExpression(node.value) // Result in RAX
+        var offset = this.getVariableOffset(node.name)
+        if offset != 0 {
+            this.emit("    mov QWORD PTR [rbp" + offset + "], rax")
+        }
+    }
+    
+    fn compileCallExpr(node) {
+        var registers = ["rcx", "rdx", "r8", "r9"]
+        
+        if node.callee.base.type == "GET_EXPR" {
+            this.compileGetExpr(node.callee)
+            this.emit("    push rax") // function ptr
+            
+            this.compileExpression(node.callee.obj)
+            this.emit("    mov rcx, rax") // 'this'
+            
+            var a = 0
+            var arg_loop = 1
+            while arg_loop == 1 {
+                if a >= len(node.args) {
+                    arg_loop = 0
+                } else {
+                    this.emit("    push rcx") // save 'this'
+                    this.compileExpression(node.args[a])
+                    this.emit("    pop rcx")
+                    
+                    if a == 0 { this.emit("    mov rdx, rax") }
+                    if a == 1 { this.emit("    mov r8, rax") }
+                    if a == 2 { this.emit("    mov r9, rax") }
+                    a = a + 1
+                }
+            }
+            
+            this.emit("    pop rax")
+            this.emit("    call rax")
+            return 1
+        }
+        
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.args) {
+                loop = 0
+            } else {
+                this.compileExpression(node.args[i])
+                if i < 4 {
+                    this.emit("    mov " + registers[i] + ", rax")
+                } else {
+                    var offset = i * 8
+                    this.emit("    mov QWORD PTR [rsp + " + offset + "], rax")
+                }
+                i = i + 1
+            }
+        }
+        
+        if node.callee.base.type == "IDENTIFIER_EXPR" {
+            if node.callee.name == "print" {
+                this.emit("    call puts")
+            } else {
+                this.emit("    call " + node.callee.name)
+            }
+        }
+    }
+    
+    fn compileArrayExpr(node) {
+        var size = len(node.elements) * 8
+        this.emit("    mov rcx, " + size)
+        this.emit("    call malloc")
+        this.emit("    push rax") // array ptr is now at [rsp]
+        
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.elements) {
+                loop = 0
+            } else {
+                this.compileExpression(node.elements[i]) // element in rax
+                this.emit("    mov rbx, QWORD PTR [rsp]")
+                var offset = i * 8
+                this.emit("    mov QWORD PTR [rbx + " + offset + "], rax")
+                i = i + 1
+            }
+        }
+        this.emit("    pop rax") // restore array ptr to rax
+    }
+    
+    fn compileIndexExpr(node) {
+        this.compileExpression(node.index)
+        this.emit("    push rax")
+        this.compileExpression(node.ds)
+        this.emit("    pop rbx")
+        this.emit("    mov rax, QWORD PTR [rax + rbx * 8]")
+    }
+    
+    fn compileIndexAssignExpr(node) {
+        this.compileExpression(node.value)
+        this.emit("    push rax")
+        this.compileExpression(node.index)
+        this.emit("    push rax")
+        this.compileExpression(node.ds)
+        this.emit("    pop rbx")
+        this.emit("    pop rcx")
+        this.emit("    mov QWORD PTR [rax + rbx * 8], rcx")
+        this.emit("    mov rax, rcx")
+    }
+    
+    fn compileGetExpr(node) {
+        this.compileExpression(node.obj)
+        var offset = this.getPropertyOffset(node.name)
+        this.emit("    mov rax, QWORD PTR [rax + " + offset + "]")
+    }
+    
+    fn compileSetExpr(node) {
+        this.compileExpression(node.value)
+        this.emit("    push rax")
+        this.compileExpression(node.obj)
+        this.emit("    pop rbx")
+        var offset = this.getPropertyOffset(node.name)
+        this.emit("    mov QWORD PTR [rax + " + offset + "], rbx")
+        this.emit("    mov rax, rbx")
+    }
+    
+    fn compileNewExpr(node) {
+        this.emit("    mov rcx, 1024")
+        this.emit("    call malloc")
+        this.emit("    push rax")
+        this.emit("    mov rcx, rax")
+        this.emit("    call " + node.className + "_init")
+        this.emit("    pop rax")
+    }
+}

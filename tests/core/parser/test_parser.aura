@@ -1,0 +1,82 @@
+// ---------------------------------------------------------
+// Module: tests/core/parser/test_parser.aura
+// Purpose: Unit tests for the Parser module
+// ---------------------------------------------------------
+
+fn assert_node_type(node, expected_type) {
+    if node.type != expected_type {
+        print("FAIL: Expected AST node type " + expected_type + ", got " + node.type)
+        return 0
+    }
+    return 1
+}
+
+fn assert_base_type(node, expected_type) {
+    if node.base.type != expected_type {
+        print("FAIL: Expected base node type " + expected_type + ", got " + node.base.type)
+        return 0
+    }
+    return 1
+}
+
+fn test_parser() {
+    print("Running Parser Tests...")
+    var passed = 0
+    var total = 0
+    
+    // Test 1: Variable Declaration and Binary Expression
+    var code1 = "var x = 10 + 20"
+    var lex1 = Lexer()
+    lex1.init(code1)
+    var tokens1 = lex1.tokenize()
+    
+    var parser1 = Parser()
+    parser1.init(tokens1)
+    var ast1 = parser1.parse()
+    
+    total = total + 5
+    passed = passed + assert_base_type(ast1, "PROGRAM")
+    passed = passed + assert_base_type(ast1.statements[0], "VAR_DECL")
+    var varDecl1 = ast1.statements[0]
+    if varDecl1.name == "x" { passed = passed + 1 } else { print("FAIL var name") }
+    
+    passed = passed + assert_base_type(varDecl1.initializer, "BINARY_EXPR")
+    if varDecl1.initializer.operator == "+" { passed = passed + 1 } else { print("FAIL binop operator") }
+    
+    // Test 2: Function Declaration and Block Statement
+    var code2 = "fn add(a, b) { return a + b }"
+    var lex2 = Lexer()
+    lex2.init(code2)
+    var tokens2 = lex2.tokenize()
+    
+    var parser2 = Parser()
+    parser2.init(tokens2)
+    var ast2 = parser2.parse()
+    
+    total = total + 4
+    passed = passed + assert_base_type(ast2.statements[0], "FUNCTION_DECL")
+    var fnDecl2 = ast2.statements[0]
+    if fnDecl2.name == "add" { passed = passed + 1 } else { print("FAIL fn name") }
+    passed = passed + assert_base_type(fnDecl2.body, "BLOCK_STMT")
+    passed = passed + assert_base_type(fnDecl2.body.statements[0], "RETURN_STMT")
+    
+    // Test 3: If Statement and Assignment
+    var code3 = "if (x > 5) { y = 10 }"
+    var lex3 = Lexer()
+    lex3.init(code3)
+    var tokens3 = lex3.tokenize()
+    
+    var parser3 = Parser()
+    parser3.init(tokens3)
+    var ast3 = parser3.parse()
+    
+    total = total + 3
+    passed = passed + assert_base_type(ast3.statements[0], "IF_STMT")
+    var ifNode3 = ast3.statements[0]
+    passed = passed + assert_base_type(ifNode3.condition, "BINARY_EXPR")
+    passed = passed + assert_base_type(ifNode3.thenBranch, "BLOCK_STMT")
+    
+    print("Parser Tests Completed: " + passed + " / " + total + " passed.")
+}
+
+test_parser()

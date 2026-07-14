@@ -1,0 +1,2179 @@
+// ---------------------------------------------------------
+// Module: core/parser/lexer.aura
+// Purpose: High-performance tokenizer for the Aura language
+// Description: Converts raw source code text into a stream of 
+//              Tokens for the parser. Handles unicode, errors, 
+//              and source mapping (lines/columns).
+// ---------------------------------------------------------
+
+// ----------------------------------------
+// Token Types (Enum Simulation)
+// ----------------------------------------
+// Represents the category of a lexical token.
+
+class TokenType {
+    fn init() {
+        // Keywords
+        this.FN = "FN"
+        this.VAR = "VAR"
+        this.IF = "IF"
+        this.ELSE = "ELSE"
+        this.WHILE = "WHILE"
+        this.RETURN = "RETURN"
+        this.CLASS = "CLASS"
+        this.NEW = "NEW"
+        
+        // Literals
+        this.IDENTIFIER = "IDENTIFIER"
+        this.NUMBER = "NUMBER"
+        this.STRING = "STRING"
+        
+        // Operators & Symbols
+        this.PLUS = "PLUS"
+        this.MINUS = "MINUS"
+        this.MUL = "MUL"
+        this.DIV = "DIV"
+        this.ASSIGN = "ASSIGN"
+        this.EQ = "EQ"
+        this.NEQ = "NEQ"
+        this.LT = "LT"
+        this.GT = "GT"
+        this.LTE = "LTE"
+        this.GTE = "GTE"
+        
+        // Punctuation
+        this.LPAREN = "LPAREN"
+        this.RPAREN = "RPAREN"
+        this.LBRACE = "LBRACE"
+        this.RBRACE = "RBRACE"
+        this.LBRACKET = "LBRACKET"
+        this.RBRACKET = "RBRACKET"
+        this.COMMA = "COMMA"
+        this.DOT = "DOT"
+        this.SEMICOLON = "SEMICOLON"
+        
+        // End of File
+        this.EOF = "EOF"
+        // Error Token (for graceful error recovery)
+        this.ERROR = "ERROR"
+    }
+}
+
+// ----------------------------------------
+// Source Position
+// ----------------------------------------
+// Tracks line and column numbers for precise error reporting.
+
+class SourcePosition {
+    fn init(line, column) {
+        this.line = line
+        this.column = column
+    }
+}
+
+// ----------------------------------------
+// Token
+// ----------------------------------------
+// A single lexical unit containing its type, raw text, and position.
+
+class Token {
+    fn init(type, text, line, column) {
+        this.type = type
+        this.text = text
+        this.position = SourcePosition()
+        this.position.init(line, column)
+    }
+    
+    fn toString() {
+        return "Token(" + this.type + ", '" + this.text + "', line " + this.position.line + ")"
+    }
+}
+
+fn createToken(type, text, line, column) {
+    var t = Token()
+    t.init(type, text, line, column)
+    return t
+}
+
+// ----------------------------------------
+// Lexer
+// ----------------------------------------
+// The main scanner class.
+
+class Lexer {
+    fn init(source) {
+        this.source = source
+        this.pos = 0
+        this.length = len(source)
+        this.line = 1
+        this.column = 1
+        
+        // Initialize token types cache
+        this.types = TokenType()
+        this.types.init()
+    }
+    
+    // ----------------------------------------
+    // Core Helper Methods
+    // ----------------------------------------
+
+    fn peek() {
+        if this.pos < this.length { 
+            return string_char_at(this.source, this.pos) 
+        }
+        return ""
+    }
+    
+    fn peekNext() {
+        if this.pos + 1 < this.length {
+            return string_char_at(this.source, this.pos + 1)
+        }
+        return ""
+    }
+
+    fn advance() {
+        var ch = this.peek()
+        this.pos = this.pos + 1
+        if ch == string_char_at("\n", 0) {
+            this.line = this.line + 1
+            this.column = 1
+        } else {
+            this.column = this.column + 1
+        }
+        return ch
+    }
+
+    fn skipWhitespaceAndComments() {
+        var loop = 1
+        while loop == 1 {
+            var ch = this.peek()
+            
+            // Skip Whitespace
+            if char_is_space(ch) {
+                this.advance()
+            } 
+            // Skip Line Comments (//)
+            else if ch == "/" and this.peekNext() == "/" {
+                var innerLoop = 1
+                while innerLoop == 1 {
+                    var c = this.peek()
+                    if c == "" { innerLoop = 0 }
+                    else if c == string_char_at("\n", 0) { innerLoop = 0 }
+                    else { this.advance() }
+                }
+            } 
+            // Neither whitespace nor comment, so break
+            else {
+                loop = 0
+            }
+        }
+    }
+
+    // ----------------------------------------
+    // Tokenization Logic
+    // ----------------------------------------
+
+    fn tokenize() {
+        var tokens = []
+        var loop = 1
+        
+        while loop == 1 {
+            this.skipWhitespaceAndComments()
+            
+            if this.pos >= this.length { 
+                loop = 0 
+            } else {
+                var start_col = this.column
+                var ch = this.peek()
+                
+                // Numbers
+                if char_is_digit(ch) {
+                    var num = ""
+                    var inner = 1
+                    while inner == 1 {
+                        var c = this.peek()
+                        if c == "" { inner = 0 }
+                        else if char_is_digit(c) { num = num + this.advance() }
+                        // Handle decimals (simplified for now)
+                        else if c == "." and char_is_digit(this.peekNext()) { 
+                            num = num + this.advance() 
+                        }
+                        else { inner = 0 }
+                    }
+                    array_push(tokens, createToken(this.types.NUMBER, num, this.line, start_col))
+                } 
+                // Identifiers & Keywords
+                else if char_is_alpha(ch) {
+                    var word = ""
+                    var inner = 1
+                    while inner == 1 {
+                        var c = this.peek()
+                        if c == "" { inner = 0 }
+                        else if char_is_alpha(c) or char_is_digit(c) or c == "_" { 
+                            word = word + this.advance() 
+                        }
+                        else { inner = 0 }
+                    }
+                    
+                    // Keyword Matching
+                    if word == "fn" { array_push(tokens, createToken(this.types.FN, word, this.line, start_col)) }
+                    else if word == "var" { array_push(tokens, createToken(this.types.VAR, word, this.line, start_col)) }
+                    else if word == "if" { array_push(tokens, createToken(this.types.IF, word, this.line, start_col)) }
+                    else if word == "else" { array_push(tokens, createToken(this.types.ELSE, word, this.line, start_col)) }
+                    else if word == "while" { array_push(tokens, createToken(this.types.WHILE, word, this.line, start_col)) }
+                    else if word == "return" { array_push(tokens, createToken(this.types.RETURN, word, this.line, start_col)) }
+                    else if word == "class" { array_push(tokens, createToken(this.types.CLASS, word, this.line, start_col)) }
+                    else if word == "new" { array_push(tokens, createToken(this.types.NEW, word, this.line, start_col)) }
+                    else { 
+                        array_push(tokens, createToken(this.types.IDENTIFIER, word, this.line, start_col)) 
+                    }
+                } 
+                // Strings
+                else if ch == "\"" {
+                    this.advance() // Consume opening quote
+                    var str_val = ""
+                    var inner = 1
+                    var is_closed = false
+                    while inner == 1 {
+                        var c = this.peek()
+                        if c == "" { inner = 0 } // EOF before closing quote
+                        else if c == "\"" { 
+                            this.advance() // Consume closing quote
+                            is_closed = true
+                            inner = 0 
+                        }
+                        else if c == "\\" { // Handle escapes
+                            this.advance()
+                            var escape_char = this.advance()
+                            if escape_char == "n" { str_val = str_val + string_char_at("\n", 0) }
+                            else if escape_char == "t" { str_val = str_val + string_char_at("\t", 0) }
+                            else if escape_char == "\\" { str_val = str_val + "\\" }
+                            else if escape_char == "\"" { str_val = str_val + "\"" }
+                            else { str_val = str_val + "\\" + escape_char }
+                        }
+                        else { str_val = str_val + this.advance() }
+                    }
+                    if is_closed {
+                        array_push(tokens, createToken(this.types.STRING, str_val, this.line, start_col))
+                    } else {
+                        array_push(tokens, createToken(this.types.ERROR, "Unterminated string", this.line, start_col))
+                    }
+                }
+                // Operators and Punctuation
+                else if ch == "=" {
+                    this.advance()
+                    if this.peek() == "=" {
+                        this.advance()
+                        array_push(tokens, createToken(this.types.EQ, "==", this.line, start_col))
+                    } else {
+                        array_push(tokens, createToken(this.types.ASSIGN, "=", this.line, start_col))
+                    }
+                }
+                else if ch == "!" {
+                    this.advance()
+                    if this.peek() == "=" {
+                        this.advance()
+                        array_push(tokens, createToken(this.types.NEQ, "!=", this.line, start_col))
+                    } else {
+                        array_push(tokens, createToken(this.types.ERROR, "Unexpected '!'", this.line, start_col))
+                    }
+                }
+                else if ch == "<" {
+                    this.advance()
+                    if this.peek() == "=" {
+                        this.advance()
+                        array_push(tokens, createToken(this.types.LTE, "<=", this.line, start_col))
+                    } else {
+                        array_push(tokens, createToken(this.types.LT, "<", this.line, start_col))
+                    }
+                }
+                else if ch == ">" {
+                    this.advance()
+                    if this.peek() == "=" {
+                        this.advance()
+                        array_push(tokens, createToken(this.types.GTE, ">=", this.line, start_col))
+                    } else {
+                        array_push(tokens, createToken(this.types.GT, ">", this.line, start_col))
+                    }
+                }
+                else if ch == "+" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.PLUS, "+", this.line, start_col)) 
+                }
+                else if ch == "-" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.MINUS, "-", this.line, start_col)) 
+                }
+                else if ch == "*" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.MUL, "*", this.line, start_col)) 
+                }
+                else if ch == "/" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.DIV, "/", this.line, start_col)) 
+                }
+                else if ch == "(" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.LPAREN, "(", this.line, start_col)) 
+                }
+                else if ch == ")" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.RPAREN, ")", this.line, start_col)) 
+                }
+                else if ch == "{" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.LBRACE, "{", this.line, start_col)) 
+                }
+                else if ch == "}" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.RBRACE, "}", this.line, start_col)) 
+                }
+                else if ch == "[" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.LBRACKET, "[", this.line, start_col)) 
+                }
+                else if ch == "]" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.RBRACKET, "]", this.line, start_col)) 
+                }
+                else if ch == "," { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.COMMA, ",", this.line, start_col)) 
+                }
+                else if ch == "." { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.DOT, ".", this.line, start_col)) 
+                }
+                else if ch == ";" { 
+                    this.advance()
+                    array_push(tokens, createToken(this.types.SEMICOLON, ";", this.line, start_col)) 
+                }
+                // Unhandled character
+                else {
+                    var bad = this.advance()
+                    array_push(tokens, createToken(this.types.ERROR, bad, this.line, start_col))
+                }
+            }
+        }
+        
+        array_push(tokens, createToken(this.types.EOF, "", this.line, this.column))
+        return tokens
+    }
+}
+// ---------------------------------------------------------
+// Module: core/parser/ast.aura
+// Purpose: Abstract Syntax Tree node definitions
+// Description: Defines the tree structure representing the
+//              parsed source code. Supports statements,
+//              expressions, and declarations.
+// ---------------------------------------------------------
+
+class ASTNodeType {
+    fn init() {
+        // Declarations
+        this.PROGRAM = "PROGRAM"
+        this.FUNCTION_DECL = "FUNCTION_DECL"
+        this.VAR_DECL = "VAR_DECL"
+        this.CLASS_DECL = "CLASS_DECL"
+        
+        // Statements
+        this.BLOCK_STMT = "BLOCK_STMT"
+        this.IF_STMT = "IF_STMT"
+        this.WHILE_STMT = "WHILE_STMT"
+        this.RETURN_STMT = "RETURN_STMT"
+        this.EXPR_STMT = "EXPR_STMT"
+        
+        // Expressions
+        this.BINARY_EXPR = "BINARY_EXPR"
+        this.UNARY_EXPR = "UNARY_EXPR"
+        this.LITERAL_EXPR = "LITERAL_EXPR"
+        this.IDENTIFIER_EXPR = "IDENTIFIER_EXPR"
+        this.ASSIGN_EXPR = "ASSIGN_EXPR"
+        this.CALL_EXPR = "CALL_EXPR"
+        this.ARRAY_EXPR = "ARRAY_EXPR"
+        this.INDEX_EXPR = "INDEX_EXPR"
+        this.INDEX_ASSIGN_EXPR = "INDEX_ASSIGN_EXPR"
+        this.GET_EXPR = "GET_EXPR"
+        this.SET_EXPR = "SET_EXPR"
+        this.NEW_EXPR = "NEW_EXPR"
+    }
+}
+
+// ----------------------------------------
+// Base Node
+// ----------------------------------------
+class ASTNode {
+    fn init(type) {
+        this.type = type
+        this.line = 0
+        this.column = 0
+    }
+}
+
+// ----------------------------------------
+// Declarations
+// ----------------------------------------
+
+class ProgramNode {
+    fn init() {
+        this.base = ASTNode()
+        this.base.init("PROGRAM")
+        this.statements = [] // Array of AST nodes
+    }
+}
+
+class FunctionDeclNode {
+    fn init(name, params, body) {
+        this.base = ASTNode()
+        this.base.init("FUNCTION_DECL")
+        this.name = name
+        this.params = params // Array of strings (param names)
+        this.body = body // BlockStmtNode
+    }
+}
+
+class VarDeclNode {
+    fn init(name, initializer) {
+        this.base = ASTNode()
+        this.base.init("VAR_DECL")
+        this.name = name
+        this.initializer = initializer // Expression node
+    }
+}
+
+class ClassDeclNode {
+    fn init(name, methods) {
+        this.base = ASTNode()
+        this.base.init("CLASS_DECL")
+        this.name = name
+        this.methods = methods // Array of FunctionDeclNode
+    }
+}
+
+// ----------------------------------------
+// Statements
+// ----------------------------------------
+
+class BlockStmtNode {
+    fn init(statements) {
+        this.base = ASTNode()
+        this.base.init("BLOCK_STMT")
+        this.statements = statements
+    }
+}
+
+class IfStmtNode {
+    fn init(condition, thenBranch, elseBranch) {
+        this.base = ASTNode()
+        this.base.init("IF_STMT")
+        this.condition = condition
+        this.thenBranch = thenBranch
+        this.elseBranch = elseBranch // Can be null
+    }
+}
+
+class WhileStmtNode {
+    fn init(condition, body) {
+        this.base = ASTNode()
+        this.base.init("WHILE_STMT")
+        this.condition = condition
+        this.body = body
+    }
+}
+
+class ReturnStmtNode {
+    fn init(value) {
+        this.base = ASTNode()
+        this.base.init("RETURN_STMT")
+        this.value = value // Expression node
+    }
+}
+
+class ExprStmtNode {
+    fn init(expression) {
+        this.base = ASTNode()
+        this.base.init("EXPR_STMT")
+        this.expression = expression
+    }
+}
+
+// ----------------------------------------
+// Expressions
+// ----------------------------------------
+
+class BinaryExprNode {
+    fn init(left, operator, right) {
+        this.base = ASTNode()
+        this.base.init("BINARY_EXPR")
+        this.left = left
+        this.operator = operator // string, e.g., "+", "=="
+        this.right = right
+    }
+}
+
+class UnaryExprNode {
+    fn init(operator, right) {
+        this.base = ASTNode()
+        this.base.init("UNARY_EXPR")
+        this.operator = operator
+        this.right = right
+    }
+}
+
+class LiteralExprNode {
+    fn init(value, literalType) {
+        this.base = ASTNode()
+        this.base.init("LITERAL_EXPR")
+        this.value = value
+        this.literalType = literalType // "NUMBER" or "STRING"
+    }
+}
+
+class IdentifierExprNode {
+    fn init(name) {
+        this.base = ASTNode()
+        this.base.init("IDENTIFIER_EXPR")
+        this.name = name
+    }
+}
+
+class AssignExprNode {
+    fn init(name, value) {
+        this.base = ASTNode()
+        this.base.init("ASSIGN_EXPR")
+        this.name = name
+        this.value = value
+    }
+}
+
+class CallExprNode {
+    fn init(callee, args) {
+        this.base = ASTNode()
+        this.base.init("CALL_EXPR")
+        this.callee = callee // Expression node
+        this.args = args // Array of expression nodes
+    }
+}
+
+class ArrayExprNode {
+    fn init(elements) {
+        this.base = ASTNode()
+        this.base.init("ARRAY_EXPR")
+        this.elements = elements // Array of expression nodes
+    }
+}
+
+class IndexExprNode {
+    fn init(ds, index) {
+        this.base = ASTNode()
+        this.base.init("INDEX_EXPR")
+        this.ds = ds // The array/string being indexed
+        this.index = index // The index expression
+    }
+}
+
+class IndexAssignExprNode {
+    fn init(ds, index, value) {
+        this.base = ASTNode()
+        this.base.init("INDEX_ASSIGN_EXPR")
+        this.ds = ds
+        this.index = index
+        this.value = value
+    }
+}
+
+class GetExprNode {
+    fn init(obj, name) {
+        this.base = ASTNode()
+        this.base.init("GET_EXPR")
+        this.obj = obj // Expression returning an instance
+        this.name = name // Property name (string)
+    }
+}
+
+class SetExprNode {
+    fn init(obj, name, value) {
+        this.base = ASTNode()
+        this.base.init("SET_EXPR")
+        this.obj = obj // Expression returning an instance
+        this.name = name // Property name (string)
+        this.value = value // Expression to assign
+    }
+}
+
+class NewExprNode {
+    fn init(className, args) {
+        this.base = ASTNode()
+        this.base.init("NEW_EXPR")
+        this.className = className // String name of the class
+        this.args = args // Array of args for constructor (optional later)
+    }
+}
+// ---------------------------------------------------------
+// Module: core/parser/parser.aura
+// Purpose: Recursive Descent Parser
+// Description: Consumes tokens from the Lexer and constructs
+//              the Abstract Syntax Tree (AST).
+// ---------------------------------------------------------
+
+class Parser {
+    fn init(tokens) {
+        this.tokens = tokens
+        this.current = 0
+        this.length = len(tokens)
+        
+        // Initialize token types reference
+        this.types = TokenType()
+        this.types.init()
+    }
+    
+    // ----------------------------------------
+    // Helper Methods
+    // ----------------------------------------
+    
+    fn peek() {
+        if this.current < this.length {
+            return this.tokens[this.current]
+        }
+        return this.tokens[this.length - 1] // EOF token
+    }
+    
+    fn previous() {
+        return this.tokens[this.current - 1]
+    }
+    
+    fn isAtEnd() {
+        return this.peek().type == this.types.EOF
+    }
+    
+    fn check(type) {
+        if this.isAtEnd() { return 0 }
+        return this.peek().type == type
+    }
+    
+    fn advance() {
+        if this.isAtEnd() {
+            // do nothing
+        } else {
+            this.current = this.current + 1
+        }
+        return this.previous()
+    }
+    
+    fn match(type) {
+        if this.check(type) {
+            this.advance()
+            return 1
+        }
+        return 0
+    }
+    
+    fn consume(type, message) {
+        if this.check(type) {
+            return this.advance()
+        }
+        
+        var err_tok = this.peek()
+        print("PARSE ERROR: " + message + " at line " + err_tok.position.line)
+        // TODO: Panic Mode error recovery here
+        return err_tok // Gracefully continue for now
+    }
+    
+    // ----------------------------------------
+    // Parsing Entry Point
+    // ----------------------------------------
+    
+    fn parse() {
+        var statements = []
+        
+        var loop = 1
+        while loop == 1 {
+            if this.isAtEnd() { 
+                loop = 0 
+            }
+            else {
+                var decl = this.declaration()
+                if decl.base.type != "ERROR" {
+                    array_push(statements, decl)
+                }
+            }
+        }
+        
+        var program = ProgramNode()
+        program.init()
+        program.statements = statements
+        return program
+    }
+    
+    // ----------------------------------------
+    // Declarations
+    // ----------------------------------------
+    
+    fn declaration() {
+        if this.match(this.types.CLASS) {
+            return this.classDeclaration()
+        }
+        if this.match(this.types.FN) {
+            return this.functionDeclaration()
+        }
+        if this.match(this.types.VAR) {
+            return this.varDeclaration()
+        }
+        return this.statement()
+    }
+    
+    fn classDeclaration() {
+        var nameToken = this.consume(this.types.IDENTIFIER, "Expect class name.")
+        this.consume(this.types.LBRACE, "Expect '{' before class body.")
+        var methods = []
+        
+        var loop = 1
+        while loop == 1 {
+            if this.check(this.types.RBRACE) or this.isAtEnd() {
+                loop = 0
+            } else {
+                this.consume(this.types.FN, "Expect 'fn' for method declaration.")
+                var method = this.functionDeclaration()
+                
+                var newParams = ["this"]
+                var p = 0
+                var ploop = 1
+                while ploop == 1 {
+                    if p >= len(method.params) {
+                        ploop = 0
+                    } else {
+                        array_push(newParams, method.params[p])
+                        p = p + 1
+                    }
+                }
+                method.params = newParams
+                
+                array_push(methods, method)
+            }
+        }
+        this.consume(this.types.RBRACE, "Expect '}' after class body.")
+        
+        var classNode = ClassDeclNode()
+        classNode.init(nameToken.text, methods)
+        classNode.base.line = nameToken.position.line
+        return classNode
+    }
+    
+    fn varDeclaration() {
+        var nameToken = this.consume(this.types.IDENTIFIER, "Expect variable name.")
+        var initializer = LiteralExprNode()
+        initializer.init("null", "IDENTIFIER") // Default to null-ish if no initializer
+        
+        if this.match(this.types.ASSIGN) {
+            initializer = this.expression()
+        }
+        
+        // Semicolons are optional in Aura currently, but if there's one, consume it.
+        this.match(this.types.SEMICOLON)
+        
+        var decl = VarDeclNode()
+        decl.init(nameToken.text, initializer)
+        decl.base.line = nameToken.position.line
+        return decl
+    }
+    
+    fn functionDeclaration() {
+        var nameToken = this.consume(this.types.IDENTIFIER, "Expect function name.")
+        this.consume(this.types.LPAREN, "Expect '(' after function name.")
+        
+        var params = []
+        if this.check(this.types.RPAREN) {
+            // empty
+        } else {
+            var loop = 1
+            while loop == 1 {
+                var p = this.consume(this.types.IDENTIFIER, "Expect parameter name.")
+                array_push(params, p.text)
+                if this.match(this.types.COMMA) {
+                    // continue
+                } else {
+                    loop = 0
+                }
+            }
+        }
+        this.consume(this.types.RPAREN, "Expect ')' after parameters.")
+        this.consume(this.types.LBRACE, "Expect '{' before function body.")
+        
+        var body = this.blockStatement()
+        
+        var funcDecl = FunctionDeclNode()
+        funcDecl.init(nameToken.text, params, body)
+        funcDecl.base.line = nameToken.position.line
+        return funcDecl
+    }
+    
+    // ----------------------------------------
+    // Statements
+    // ----------------------------------------
+    
+    fn statement() {
+        if this.match(this.types.IF) {
+            return this.ifStatement()
+        }
+        if this.match(this.types.WHILE) {
+            return this.whileStatement()
+        }
+        if this.match(this.types.RETURN) {
+            return this.returnStatement()
+        }
+        if this.match(this.types.LBRACE) {
+            return this.blockStatement()
+        }
+        
+        return this.expressionStatement()
+    }
+    
+    fn ifStatement() {
+        var line = this.previous().position.line
+        this.consume(this.types.LPAREN, "Expect '(' after 'if'.")
+        var condition = this.expression()
+        this.consume(this.types.RPAREN, "Expect ')' after if condition.")
+        
+        var thenBranch = this.statement()
+        var elseBranch = LiteralExprNode() // Null fallback
+        elseBranch.init("null", "IDENTIFIER")
+        
+        if this.match(this.types.ELSE) {
+            elseBranch = this.statement()
+        }
+        
+        var ifNode = IfStmtNode()
+        ifNode.init(condition, thenBranch, elseBranch)
+        ifNode.base.line = line
+        return ifNode
+    }
+    
+    fn whileStatement() {
+        var line = this.previous().position.line
+        this.consume(this.types.LPAREN, "Expect '(' after 'while'.")
+        var condition = this.expression()
+        this.consume(this.types.RPAREN, "Expect ')' after condition.")
+        var body = this.statement()
+        
+        var whileNode = WhileStmtNode()
+        whileNode.init(condition, body)
+        whileNode.base.line = line
+        return whileNode
+    }
+    
+    fn returnStatement() {
+        var line = this.previous().position.line
+        var value = LiteralExprNode()
+        value.init("null", "IDENTIFIER")
+        
+        // If it's not the end of a block or file, there might be a return value
+        if this.check(this.types.SEMICOLON) {
+            // empty
+        } else {
+            if this.check(this.types.RBRACE) {
+                // empty
+            } else {
+                value = this.expression()
+            }
+        }
+        this.match(this.types.SEMICOLON)
+        
+        var retNode = ReturnStmtNode()
+        retNode.init(value)
+        retNode.base.line = line
+        return retNode
+    }
+    
+    fn blockStatement() {
+        var line = this.previous().position.line
+        var statements = []
+        
+        var loop = 1
+        while loop == 1 {
+            if this.check(this.types.RBRACE) or this.isAtEnd() {
+                loop = 0
+            } else {
+                var decl = this.declaration()
+                if decl.base.type != "ERROR" {
+                    array_push(statements, decl)
+                }
+            }
+        }
+        this.consume(this.types.RBRACE, "Expect '}' after block.")
+        
+        var blockNode = BlockStmtNode()
+        blockNode.init(statements)
+        blockNode.base.line = line
+        return blockNode
+    }
+    
+    fn expressionStatement() {
+        var expr = this.expression()
+        this.match(this.types.SEMICOLON)
+        
+        var exprStmt = ExprStmtNode()
+        exprStmt.init(expr)
+        if expr.base != 0 {
+            exprStmt.base.line = expr.base.line
+        }
+        return exprStmt
+    }
+    
+    // ----------------------------------------
+    // Expressions
+    // ----------------------------------------
+    
+    fn expression() {
+        return this.assignment()
+    }
+    
+    fn assignment() {
+        var expr = this.equality()
+        
+        if this.match(this.types.ASSIGN) {
+            var equals = this.previous()
+            var value = this.assignment()
+            
+            if expr.base.type == "IDENTIFIER_EXPR" {
+                var name = expr.name
+                var assignNode = AssignExprNode()
+                assignNode.init(name, value)
+                assignNode.base.line = equals.position.line
+                return assignNode
+            } else if expr.base.type == "INDEX_EXPR" {
+                var assignNode = IndexAssignExprNode()
+                assignNode.init(expr.ds, expr.index, value)
+                assignNode.base.line = equals.position.line
+                return assignNode
+            } else if expr.base.type == "GET_EXPR" {
+                var assignNode = SetExprNode()
+                assignNode.init(expr.obj, expr.name, value)
+                assignNode.base.line = equals.position.line
+                return assignNode
+            }
+            
+            print("PARSE ERROR: Invalid assignment target at line " + equals.position.line)
+        }
+        
+        return expr
+    }
+    
+    fn equality() {
+        var expr = this.comparison()
+        
+        var loop = 1
+        while loop == 1 {
+            if this.match(this.types.NEQ) or this.match(this.types.EQ) {
+                var operator = this.previous()
+                var right = this.comparison()
+                var binNode = BinaryExprNode()
+                binNode.init(expr, operator.text, right)
+                binNode.base.line = operator.position.line
+                expr = binNode
+            } else {
+                loop = 0
+            }
+        }
+        return expr
+    }
+    
+    fn comparison() {
+        var expr = this.term()
+        
+        var loop = 1
+        while loop == 1 {
+            if this.match(this.types.GT) or this.match(this.types.GTE) or this.match(this.types.LT) or this.match(this.types.LTE) {
+                var operator = this.previous()
+                var right = this.term()
+                var binNode = BinaryExprNode()
+                binNode.init(expr, operator.text, right)
+                binNode.base.line = operator.position.line
+                expr = binNode
+            } else {
+                loop = 0
+            }
+        }
+        return expr
+    }
+    
+    fn term() {
+        var expr = this.factor()
+        
+        var loop = 1
+        while loop == 1 {
+            if this.match(this.types.MINUS) or this.match(this.types.PLUS) {
+                var operator = this.previous()
+                var right = this.factor()
+                var binNode = BinaryExprNode()
+                binNode.init(expr, operator.text, right)
+                binNode.base.line = operator.position.line
+                expr = binNode
+            } else {
+                loop = 0
+            }
+        }
+        return expr
+    }
+    
+    fn factor() {
+        var expr = this.unary()
+        
+        var loop = 1
+        while loop == 1 {
+            if this.match(this.types.DIV) or this.match(this.types.MUL) {
+                var operator = this.previous()
+                var right = this.unary()
+                var binNode = BinaryExprNode()
+                binNode.init(expr, operator.text, right)
+                binNode.base.line = operator.position.line
+                expr = binNode
+            } else {
+                loop = 0
+            }
+        }
+        return expr
+    }
+    
+    fn unary() {
+        if this.match(this.types.MINUS) {
+            var operator = this.previous()
+            var right = this.unary()
+            var unNode = UnaryExprNode()
+            unNode.init(operator.text, right)
+            unNode.base.line = operator.position.line
+            return unNode
+        }
+        return this.call()
+    }
+    
+    fn call() {
+        var expr = this.primary()
+        var loop = 1
+        while loop == 1 {
+            if this.match(this.types.LPAREN) {
+                expr = this.finishCall(expr)
+            } else if this.match(this.types.LBRACKET) {
+                var indexExpr = this.expression()
+                var rbracket = this.consume(this.types.RBRACKET, "Expect ']' after index.")
+                var idxNode = IndexExprNode()
+                idxNode.init(expr, indexExpr)
+                idxNode.base.line = rbracket.position.line
+                expr = idxNode
+            } else if this.match(this.types.DOT) {
+                var nameToken = this.consume(this.types.IDENTIFIER, "Expect property name after '.'.")
+                var getNode = GetExprNode()
+                getNode.init(expr, nameToken.text)
+                getNode.base.line = nameToken.position.line
+                expr = getNode
+            } else {
+                loop = 0
+            }
+        }
+        return expr
+    }
+    
+    fn finishCall(callee) {
+        var args = []
+        if this.check(this.types.RPAREN) {
+            // empty args
+        } else {
+            var loop = 1
+            while loop == 1 {
+                array_push(args, this.expression())
+                if this.match(this.types.COMMA) {
+                    // continue
+                } else {
+                    loop = 0
+                }
+            }
+        }
+        var paren = this.consume(this.types.RPAREN, "Expect ')' after arguments.")
+        var callNode = CallExprNode()
+        callNode.init(callee, args)
+        if paren.type != "ERROR" {
+            callNode.base.line = paren.position.line
+        }
+        return callNode
+    }
+    
+    fn primary() {
+        if this.match(this.types.NUMBER) {
+            var lit = LiteralExprNode()
+            lit.init(this.previous().text, "NUMBER")
+            lit.base.line = this.previous().position.line
+            return lit
+        }
+        if this.match(this.types.STRING) {
+            var lit = LiteralExprNode()
+            lit.init(this.previous().text, "STRING")
+            lit.base.line = this.previous().position.line
+            return lit
+        }
+        if this.match(this.types.IDENTIFIER) {
+            var ident = IdentifierExprNode()
+            ident.init(this.previous().text)
+            ident.base.line = this.previous().position.line
+            return ident
+        }
+        
+        if this.match(this.types.LPAREN) {
+            var expr = this.expression()
+            this.consume(this.types.RPAREN, "Expect ')' after expression.")
+            return expr
+        }
+        
+        if this.match(this.types.LBRACKET) {
+            var elements = []
+            if this.check(this.types.RBRACKET) {
+                // empty args
+            } else {
+                var loop = 1
+                while loop == 1 {
+                    array_push(elements, this.expression())
+                    if this.match(this.types.COMMA) {
+                        // continue
+                    } else {
+                        loop = 0
+                    }
+                }
+            }
+            var rbracket = this.consume(this.types.RBRACKET, "Expect ']' after array elements.")
+            var arrNode = ArrayExprNode()
+            arrNode.init(elements)
+            if rbracket.type != "ERROR" {
+                arrNode.base.line = rbracket.position.line
+            }
+            return arrNode
+        }
+        
+        if this.match(this.types.NEW) {
+            var nameToken = this.consume(this.types.IDENTIFIER, "Expect class name after 'new'.")
+            this.consume(this.types.LPAREN, "Expect '(' after class name.")
+            var args = []
+            if this.check(this.types.RPAREN) {
+                // empty args
+            } else {
+                var loop = 1
+                while loop == 1 {
+                    array_push(args, this.expression())
+                    if this.match(this.types.COMMA) {
+                        // continue
+                    } else {
+                        loop = 0
+                    }
+                }
+            }
+            this.consume(this.types.RPAREN, "Expect ')' after arguments.")
+            
+            var newNode = NewExprNode()
+            newNode.init(nameToken.text, args)
+            newNode.base.line = nameToken.position.line
+            return newNode
+        }
+        
+        // Handle error gracefully
+        var err_tok = this.peek()
+        print("PARSE ERROR: Expect expression at line " + err_tok.position.line)
+        this.advance()
+        var errNode = LiteralExprNode()
+        errNode.init("ERROR", "ERROR")
+        return errNode
+    }
+}
+// ---------------------------------------------------------
+// Module: core/analyzer/symbol_table.aura
+// Purpose: Symbol Table and Scope Management
+// Description: Tracks variable declarations, function
+//              signatures, and lexical scopes for type checking.
+// ---------------------------------------------------------
+
+class Symbol {
+    fn init(name, type, node) {
+        this.name = name
+        this.type = type // "VAR", "FUNCTION", "CLASS"
+        this.node = node // AST Node reference
+        
+        // Type checker annotations
+        this.valueType = "UNKNOWN"
+        this.initialized = 0
+    }
+}
+
+class Scope {
+    fn init(parent) {
+        this.parent = parent
+        this.keys = []
+        this.values = [] // Array of Symbol objects
+    }
+    
+    fn define(name, type, node) {
+        // Check if already defined in the current scope
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(this.keys) {
+                loop = 0
+            } else {
+                if this.keys[i] == name {
+                    return 0 // Already defined
+                }
+                i = i + 1
+            }
+        }
+        
+        var sym = Symbol()
+        sym.init(name, type, node)
+        array_push(this.keys, name)
+        array_push(this.values, sym)
+        return 1
+    }
+    
+    fn resolve(name) {
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(this.keys) {
+                loop = 0
+            } else {
+                if this.keys[i] == name {
+                    return this.values[i]
+                }
+                i = i + 1
+            }
+        }
+        
+        if this.parent != 0 {
+            return this.parent.resolve(name)
+        }
+        
+        // Null-ish fallback for undefined
+        var errSym = Symbol()
+        errSym.init("ERROR", "ERROR", 0)
+        return errSym
+    }
+}
+
+class SymbolTable {
+    fn init() {
+        this.globalScope = Scope()
+        this.globalScope.init(0)
+        
+        this.currentScope = this.globalScope
+    }
+    
+    fn enterScope() {
+        var newScope = Scope()
+        newScope.init(this.currentScope)
+        this.currentScope = newScope
+    }
+    
+    fn exitScope() {
+        if this.currentScope.parent != 0 {
+            this.currentScope = this.currentScope.parent
+        } else {
+            print("ERROR: Cannot exit global scope.")
+        }
+    }
+    
+    fn define(name, type, node) {
+        return this.currentScope.define(name, type, node)
+    }
+    
+    fn resolve(name) {
+        return this.currentScope.resolve(name)
+    }
+}
+// ---------------------------------------------------------
+// Module: core/analyzer/type_checker.aura
+// Purpose: AST Visitor for Semantic Analysis
+// Description: Traverses the AST, builds the symbol table,
+//              and enforces type safety and variable scoping.
+// ---------------------------------------------------------
+
+class TypeChecker {
+    fn init() {
+        this.symTable = SymbolTable()
+        this.symTable.init()
+        
+        this.errors = []
+        
+        // Define built-in functions
+        this.symTable.define("print", "FUNCTION", 0)
+        this.symTable.define("WSAStartup", "FUNCTION", 0)
+        this.symTable.define("socket", "FUNCTION", 0)
+        this.symTable.define("bind", "FUNCTION", 0)
+        this.symTable.define("listen", "FUNCTION", 0)
+        this.symTable.define("accept", "FUNCTION", 0)
+        this.symTable.define("recv", "FUNCTION", 0)
+        this.symTable.define("send", "FUNCTION", 0)
+        this.symTable.define("closesocket", "FUNCTION", 0)
+        
+        this.symTable.define("CreateFileA", "FUNCTION", 0)
+        this.symTable.define("ReadFile", "FUNCTION", 0)
+        this.symTable.define("WriteFile", "FUNCTION", 0)
+        this.symTable.define("CloseHandle", "FUNCTION", 0)
+    }
+    
+    fn reportError(message, line) {
+        var err = "Semantic Error at line " + line + ": " + message
+        array_push(this.errors, err)
+        print(err)
+    }
+    
+    // ----------------------------------------
+    // Dispatch
+    // ----------------------------------------
+    
+    fn check(node) {
+        if node == 0 { return 0 }
+        
+        if node.base.type == "PROGRAM" { return this.checkProgram(node) }
+        if node.base.type == "CLASS_DECL" { return this.checkClassDecl(node) }
+        if node.base.type == "FUNCTION_DECL" { return this.checkFunctionDecl(node) }
+        if node.base.type == "VAR_DECL" { return this.checkVarDecl(node) }
+        
+        if node.base.type == "BLOCK_STMT" { return this.checkBlockStmt(node) }
+        if node.base.type == "IF_STMT" { return this.checkIfStmt(node) }
+        if node.base.type == "WHILE_STMT" { return this.checkWhileStmt(node) }
+        if node.base.type == "RETURN_STMT" { return this.checkReturnStmt(node) }
+        if node.base.type == "EXPR_STMT" { return this.checkExprStmt(node) }
+        
+        if node.base.type == "BINARY_EXPR" { return this.checkBinaryExpr(node) }
+        if node.base.type == "UNARY_EXPR" { return this.checkUnaryExpr(node) }
+        if node.base.type == "LITERAL_EXPR" { return this.checkLiteralExpr(node) }
+        if node.base.type == "IDENTIFIER_EXPR" { return this.checkIdentifierExpr(node) }
+        if node.base.type == "ASSIGN_EXPR" { return this.checkAssignExpr(node) }
+        if node.base.type == "CALL_EXPR" { return this.checkCallExpr(node) }
+        if node.base.type == "ARRAY_EXPR" { return this.checkArrayExpr(node) }
+        if node.base.type == "INDEX_EXPR" { return this.checkIndexExpr(node) }
+        if node.base.type == "INDEX_ASSIGN_EXPR" { return this.checkIndexAssignExpr(node) }
+        if node.base.type == "GET_EXPR" { return this.checkGetExpr(node) }
+        if node.base.type == "SET_EXPR" { return this.checkSetExpr(node) }
+        if node.base.type == "NEW_EXPR" { return this.checkNewExpr(node) }
+        
+        this.reportError("Unknown AST node type: " + node.base.type, node.base.line)
+        return "UNKNOWN"
+    }
+    
+    // ----------------------------------------
+    // Declarations
+    // ----------------------------------------
+    
+    fn checkProgram(node) {
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.statements) {
+                loop = 0
+            } else {
+                this.check(node.statements[i])
+                i = i + 1
+            }
+        }
+        return "UNKNOWN"
+    }
+    
+    fn checkClassDecl(node) {
+        this.symTable.define(node.name, "CLASS", node)
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.methods) {
+                loop = 0
+            } else {
+                this.check(node.methods[i])
+                i = i + 1
+            }
+        }
+        return "UNKNOWN"
+    }
+    
+    fn checkFunctionDecl(node) {
+        var def = this.symTable.define(node.name, "FUNCTION", node)
+        if def == 0 {
+            this.reportError("Function '" + node.name + "' is already defined.", node.base.line)
+        }
+        
+        this.symTable.enterScope()
+        
+        // Define parameters
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.params) {
+                loop = 0
+            } else {
+                var p = node.params[i]
+                this.symTable.define(p, "VAR", 0) // Param node is just string for now
+                i = i + 1
+            }
+        }
+        
+        this.check(node.body)
+        
+        this.symTable.exitScope()
+        return "VOID"
+    }
+    
+    fn checkVarDecl(node) {
+        var initType = "UNKNOWN"
+        if node.initializer.base.type != "LITERAL_EXPR" or node.initializer.value != "null" {
+            initType = this.check(node.initializer)
+        }
+        
+        var def = this.symTable.define(node.name, "VAR", node)
+        if def == 0 {
+            this.reportError("Variable '" + node.name + "' is already defined in this scope.", node.base.line)
+        }
+        return "VOID"
+    }
+    
+    // ----------------------------------------
+    // Statements
+    // ----------------------------------------
+    
+    fn checkBlockStmt(node) {
+        this.symTable.enterScope()
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.statements) {
+                loop = 0
+            } else {
+                this.check(node.statements[i])
+                i = i + 1
+            }
+        }
+        this.symTable.exitScope()
+        return "VOID"
+    }
+    
+    fn checkIfStmt(node) {
+        var condType = this.check(node.condition)
+        // In Aura, everything might be truthy, but let's check it anyway.
+        this.check(node.thenBranch)
+        if node.elseBranch.base.type != "LITERAL_EXPR" or node.elseBranch.value != "null" {
+            this.check(node.elseBranch)
+        }
+        return "VOID"
+    }
+    
+    fn checkWhileStmt(node) {
+        this.check(node.condition)
+        this.check(node.body)
+        return "VOID"
+    }
+    
+    fn checkReturnStmt(node) {
+        if node.value.base.type != "LITERAL_EXPR" or node.value.value != "null" {
+            this.check(node.value)
+        }
+        return "VOID"
+    }
+    
+    fn checkExprStmt(node) {
+        this.check(node.expression)
+        return "VOID"
+    }
+    
+    // ----------------------------------------
+    // Expressions
+    // ----------------------------------------
+    
+    fn checkBinaryExpr(node) {
+        var left = this.check(node.left)
+        var right = this.check(node.right)
+        // Type rules will apply here later. For now, assume NUMBER for math.
+        if node.operator == "+" or node.operator == "-" or node.operator == "*" or node.operator == "/" {
+            return "NUMBER"
+        }
+        // Comparisons return BOOLEAN/NUMBER
+        return "NUMBER"
+    }
+    
+    fn checkUnaryExpr(node) {
+        var right = this.check(node.right)
+        return "NUMBER"
+    }
+    
+    fn checkLiteralExpr(node) {
+        if node.literalType == "STRING" { return "STRING" }
+        return "NUMBER" // Number, boolean, null
+    }
+    
+    fn checkIdentifierExpr(node) {
+        var sym = this.symTable.resolve(node.name)
+        if sym.type == "ERROR" {
+            this.reportError("Undefined variable '" + node.name + "'.", node.base.line)
+            return "UNKNOWN"
+        }
+        return "UNKNOWN" // We'd return the actual type if it was strongly typed
+    }
+    
+    fn checkAssignExpr(node) {
+        var valueType = this.check(node.value)
+        var sym = this.symTable.resolve(node.name)
+        if sym.type == "ERROR" {
+            this.reportError("Cannot assign to undefined variable '" + node.name + "'.", node.base.line)
+        }
+        return valueType
+    }
+    
+    fn checkCallExpr(node) {
+        var calleeType = this.check(node.callee)
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.args) {
+                loop = 0
+            } else {
+                this.check(node.args[i])
+                i = i + 1
+            }
+        }
+        return "UNKNOWN" // Function return type logic goes here
+    }
+    
+    fn checkArrayExpr(node) {
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.elements) {
+                loop = 0
+            } else {
+                this.check(node.elements[i])
+                i = i + 1
+            }
+        }
+        return "ARRAY"
+    }
+    
+    fn checkIndexExpr(node) {
+        this.check(node.ds)
+        this.check(node.index)
+        return "UNKNOWN"
+    }
+    
+    fn checkIndexAssignExpr(node) {
+        this.check(node.ds)
+        this.check(node.index)
+        this.check(node.value)
+        return "UNKNOWN"
+    }
+    
+    fn checkGetExpr(node) {
+        this.check(node.obj)
+        return "UNKNOWN"
+    }
+    
+    fn checkSetExpr(node) {
+        this.check(node.obj)
+        this.check(node.value)
+        return "UNKNOWN"
+    }
+    
+    fn checkNewExpr(node) {
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.args) {
+                loop = 0
+            } else {
+                this.check(node.args[i])
+                i = i + 1
+            }
+        }
+        return "INSTANCE"
+    }
+}
+// ---------------------------------------------------------
+// Module: core/compiler/x64_emitter.aura
+// Purpose: AST to x86-64 Assembly Compiler
+// Description: Traverses the AST and emits NASM/FASM 
+//              compatible x86-64 assembly code.
+// ---------------------------------------------------------
+
+class X64Compiler {
+    fn init() {
+        this.asm = ""
+        this.labelCount = 0
+        this.symTable = SymbolTable()
+        this.symTable.init()
+        
+        // Track variable stack offsets mapping: Name -> Offset
+        // Local variables are stored on the stack relative to RBP.
+        this.varNames = []
+        this.varOffsets = []
+        this.currentOffset = 0
+        this.stringLiterals = []
+        this.propertyOffsets = [] // Global property table for OOP
+    }
+    
+    fn emit(line) {
+        this.asm = this.asm + line + "\n"
+    }
+    
+    fn newLabel() {
+        this.labelCount = this.labelCount + 1
+        return ".L" + this.labelCount
+    }
+    
+    // Manage stack offsets
+    fn getPropertyOffset(name) {
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(this.propertyOffsets) {
+                loop = 0
+            } else {
+                if this.propertyOffsets[i] == name {
+                    return i * 8
+                }
+                i = i + 1
+            }
+        }
+        array_push(this.propertyOffsets, name)
+        return (len(this.propertyOffsets) - 1) * 8
+    }
+    
+    fn addVariable(name) {
+        this.currentOffset = this.currentOffset - 8
+        array_push(this.varNames, name)
+        array_push(this.varOffsets, this.currentOffset)
+        return this.currentOffset
+    }
+    
+    fn getVariableOffset(name) {
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(this.varNames) {
+                loop = 0
+            } else {
+                if this.varNames[i] == name {
+                    return this.varOffsets[i]
+                }
+                i = i + 1
+            }
+        }
+        return 0 // Error/Global
+    }
+    
+    // ----------------------------------------
+    // Compilation Entry Point
+    // ----------------------------------------
+    
+    fn compile(ast) {
+        // Standard Prologue for executable (GAS Intel Syntax)
+        this.emit(".intel_syntax noprefix")
+        this.emit(".global main")
+        this.emit(".extern puts")
+        this.emit(".extern malloc")
+        this.emit(".extern WSAStartup")
+        this.emit(".extern socket")
+        this.emit(".extern bind")
+        this.emit(".extern listen")
+        this.emit(".extern accept")
+        this.emit(".extern recv")
+        this.emit(".extern send")
+        this.emit(".extern closesocket")
+        
+        this.emit(".extern CreateFileA")
+        this.emit(".extern ReadFile")
+        this.emit(".extern WriteFile")
+        this.emit(".extern CloseHandle")
+        
+        this.emit(".text")
+        this.emit("")
+        
+        if ast.base.type == "PROGRAM" {
+            this.compileProgram(ast)
+        }
+        
+        return this.asm
+    }
+    
+    fn compileProgram(node) {
+        // Compile standalone functions and classes
+        var j = 0
+        var floop = 1
+        while floop == 1 {
+            if j >= len(node.statements) {
+                floop = 0
+            } else {
+                var fstmt = node.statements[j]
+                if fstmt.base.type == "FUNCTION_DECL" {
+                    this.compileFunction(fstmt)
+                }
+                if fstmt.base.type == "CLASS_DECL" {
+                    this.compileClass(fstmt)
+                }
+                j = j + 1
+            }
+        }
+        
+        // Emit .data segment for strings
+        if len(this.stringLiterals) > 0 {
+            this.emit(".data")
+            var s = 0
+            while s < len(this.stringLiterals) {
+                this.emit(".L_str_" + s + ":")
+                this.emit("    .asciz \"" + this.stringLiterals[s] + "\"")
+                s = s + 1
+            }
+        }
+    }
+    
+    // ----------------------------------------
+    // Statements
+    // ----------------------------------------
+    
+    fn compileClass(node) {
+        // Emit Class Init function
+        this.emit(node.name + "_init:")
+        this.emit("    push rbp")
+        this.emit("    mov rbp, rsp")
+        this.emit("    sub rsp, 32")
+        this.emit("    mov QWORD PTR [rbp-8], rcx") // save obj ptr
+        
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.methods) {
+                loop = 0
+            } else {
+                var method = node.methods[i]
+                var offset = this.getPropertyOffset(method.name)
+                this.emit("    lea rdx, " + node.name + "_" + method.name + "[rip]")
+                this.emit("    mov rcx, QWORD PTR [rbp-8]")
+                this.emit("    mov QWORD PTR [rcx + " + offset + "], rdx")
+                i = i + 1
+            }
+        }
+        
+        this.emit("    mov rsp, rbp")
+        this.emit("    pop rbp")
+        this.emit("    ret")
+        
+        // Compile methods
+        var k = 0
+        var kloop = 1
+        while kloop == 1 {
+            if k >= len(node.methods) {
+                kloop = 0
+            } else {
+                var method = node.methods[k]
+                method.name = node.name + "_" + method.name
+                this.compileFunction(method)
+                k = k + 1
+            }
+        }
+    }
+    
+    fn compileStatement(node) {
+        if node.base.type == "VAR_DECL" { return this.compileVarDecl(node) }
+        if node.base.type == "BLOCK_STMT" { return this.compileBlockStmt(node) }
+        if node.base.type == "IF_STMT" { return this.compileIfStmt(node) }
+        if node.base.type == "WHILE_STMT" { return this.compileWhileStmt(node) }
+        if node.base.type == "RETURN_STMT" { return this.compileReturnStmt(node) }
+        if node.base.type == "EXPR_STMT" { return this.compileExprStmt(node) }
+    }
+    
+    fn compileFunction(node) {
+        this.emit(node.name + ":")
+        this.emit("    push rbp")
+        this.emit("    mov rbp, rsp")
+        this.emit("    sub rsp, 128") // Stack space + shadow space
+        
+        // Load arguments from registers (Windows MS ABI: rcx, rdx, r8, r9)
+        var registers = ["rcx", "rdx", "r8", "r9"]
+        
+        // We reset local offset for each function
+        this.varNames = []
+        this.varOffsets = []
+        this.currentOffset = 0
+        
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.params) {
+                loop = 0
+            } else {
+                var offset = this.addVariable(node.params[i])
+                // Store param into stack
+                if i < 4 {
+                    this.emit("    mov QWORD PTR [rbp" + offset + "], " + registers[i])
+                }
+                i = i + 1
+            }
+        }
+        
+        this.compileStatement(node.body)
+        
+        this.emit("    mov rsp, rbp")
+        this.emit("    pop rbp")
+        this.emit("    ret")
+    }
+    
+    fn compileVarDecl(node) {
+        if node.initializer.base.type != "LITERAL_EXPR" or node.initializer.value != "null" {
+            this.compileExpression(node.initializer)
+        } else {
+            this.emit("    mov rax, 0")
+        }
+        
+        var offset = this.addVariable(node.name)
+        // Store RAX into the variable's stack slot
+        this.emit("    mov QWORD PTR [rbp" + offset + "], rax")
+    }
+    
+    fn compileBlockStmt(node) {
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.statements) {
+                loop = 0
+            } else {
+                this.compileStatement(node.statements[i])
+                i = i + 1
+            }
+        }
+    }
+    
+    fn compileIfStmt(node) {
+        var elseLabel = this.newLabel()
+        var endLabel = this.newLabel()
+        
+        // Evaluate condition (result in RAX)
+        this.compileExpression(node.condition)
+        this.emit("    cmp rax, 0")
+        this.emit("    je " + elseLabel)
+        
+        this.compileStatement(node.thenBranch)
+        this.emit("    jmp " + endLabel)
+        
+        this.emit(elseLabel + ":")
+        if node.elseBranch.base.type != "LITERAL_EXPR" or node.elseBranch.value != "null" {
+            this.compileStatement(node.elseBranch)
+        }
+        this.emit(endLabel + ":")
+    }
+    
+    fn compileWhileStmt(node) {
+        var startLabel = this.newLabel()
+        var endLabel = this.newLabel()
+        
+        this.emit(startLabel + ":")
+        this.compileExpression(node.condition)
+        this.emit("    cmp rax, 0")
+        this.emit("    je " + endLabel)
+        
+        this.compileStatement(node.body)
+        this.emit("    jmp " + startLabel)
+        
+        this.emit(endLabel + ":")
+    }
+    
+    fn compileReturnStmt(node) {
+        if node.value.base.type != "LITERAL_EXPR" or node.value.value != "null" {
+            this.compileExpression(node.value)
+        } else {
+            this.emit("    mov rax, 0")
+        }
+        this.emit("    mov rsp, rbp")
+        this.emit("    pop rbp")
+        this.emit("    ret")
+    }
+    
+    fn compileExprStmt(node) {
+        this.compileExpression(node.expression)
+    }
+    
+    // ----------------------------------------
+    // Expressions
+    // ----------------------------------------
+    
+    fn compileExpression(node) {
+        if node.base.type == "BINARY_EXPR" { return this.compileBinaryExpr(node) }
+        if node.base.type == "UNARY_EXPR" { return this.compileUnaryExpr(node) }
+        if node.base.type == "LITERAL_EXPR" { return this.compileLiteralExpr(node) }
+        if node.base.type == "IDENTIFIER_EXPR" { return this.compileIdentifierExpr(node) }
+        if node.base.type == "ASSIGN_EXPR" { return this.compileAssignExpr(node) }
+        if node.base.type == "CALL_EXPR" { return this.compileCallExpr(node) }
+        if node.base.type == "ARRAY_EXPR" { return this.compileArrayExpr(node) }
+        if node.base.type == "INDEX_EXPR" { return this.compileIndexExpr(node) }
+        if node.base.type == "INDEX_ASSIGN_EXPR" { return this.compileIndexAssignExpr(node) }
+        if node.base.type == "GET_EXPR" { return this.compileGetExpr(node) }
+        if node.base.type == "SET_EXPR" { return this.compileSetExpr(node) }
+        if node.base.type == "NEW_EXPR" { return this.compileNewExpr(node) }
+    }
+    
+    fn compileBinaryExpr(node) {
+        // Compile left side first, save RAX by pushing to stack
+        this.compileExpression(node.left)
+        this.emit("    push rax")
+        
+        // Compile right side into RAX
+        this.compileExpression(node.right)
+        
+        // Move right side to RBX, pop left side to RAX
+        this.emit("    mov rbx, rax")
+        this.emit("    pop rax")
+        
+        if node.operator == "+" {
+            this.emit("    add rax, rbx")
+        } else if node.operator == "-" {
+            this.emit("    sub rax, rbx")
+        } else if node.operator == "*" {
+            this.emit("    imul rax, rbx")
+        } else if node.operator == "/" {
+            this.emit("    cqo")
+            this.emit("    idiv rbx")
+        } else if node.operator == "==" {
+            this.emit("    cmp rax, rbx")
+            this.emit("    sete al")
+            this.emit("    movzx rax, al")
+        } else if node.operator == "!=" {
+            this.emit("    cmp rax, rbx")
+            this.emit("    setne al")
+            this.emit("    movzx rax, al")
+        } else if node.operator == "<" {
+            this.emit("    cmp rax, rbx")
+            this.emit("    setl al")
+            this.emit("    movzx rax, al")
+        } else if node.operator == ">" {
+            this.emit("    cmp rax, rbx")
+            this.emit("    setg al")
+            this.emit("    movzx rax, al")
+        }
+    }
+    
+    fn compileUnaryExpr(node) {
+        this.compileExpression(node.right)
+        if node.operator == "-" {
+            this.emit("    neg rax")
+        }
+    }
+    
+    fn compileLiteralExpr(node) {
+        if node.literalType == "NUMBER" {
+            this.emit("    mov rax, " + node.value)
+        } else if node.literalType == "STRING" {
+            var idx = len(this.stringLiterals)
+            array_push(this.stringLiterals, node.value)
+            this.emit("    lea rax, .L_str_" + idx + "[rip]")
+        }
+    }
+    
+    fn compileIdentifierExpr(node) {
+        var offset = this.getVariableOffset(node.name)
+        if offset != 0 {
+            this.emit("    mov rax, QWORD PTR [rbp" + offset + "]")
+        } else {
+            // Unresolved variable fallback
+            this.emit("    mov rax, 0")
+        }
+    }
+    
+    fn compileAssignExpr(node) {
+        this.compileExpression(node.value) // Result in RAX
+        var offset = this.getVariableOffset(node.name)
+        if offset != 0 {
+            this.emit("    mov QWORD PTR [rbp" + offset + "], rax")
+        }
+    }
+    
+    fn compileCallExpr(node) {
+        var registers = ["rcx", "rdx", "r8", "r9"]
+        
+        if node.callee.base.type == "GET_EXPR" {
+            this.compileGetExpr(node.callee)
+            this.emit("    push rax") // function ptr
+            
+            this.compileExpression(node.callee.obj)
+            this.emit("    mov rcx, rax") // 'this'
+            
+            var a = 0
+            var arg_loop = 1
+            while arg_loop == 1 {
+                if a >= len(node.args) {
+                    arg_loop = 0
+                } else {
+                    this.emit("    push rcx") // save 'this'
+                    this.compileExpression(node.args[a])
+                    this.emit("    pop rcx")
+                    
+                    if a == 0 { this.emit("    mov rdx, rax") }
+                    if a == 1 { this.emit("    mov r8, rax") }
+                    if a == 2 { this.emit("    mov r9, rax") }
+                    a = a + 1
+                }
+            }
+            
+            this.emit("    pop rax")
+            this.emit("    call rax")
+            return 1
+        }
+        
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.args) {
+                loop = 0
+            } else {
+                this.compileExpression(node.args[i])
+                if i < 4 {
+                    this.emit("    mov " + registers[i] + ", rax")
+                } else {
+                    var offset = i * 8
+                    this.emit("    mov QWORD PTR [rsp + " + offset + "], rax")
+                }
+                i = i + 1
+            }
+        }
+        
+        if node.callee.base.type == "IDENTIFIER_EXPR" {
+            if node.callee.name == "print" {
+                this.emit("    call puts")
+            } else {
+                this.emit("    call " + node.callee.name)
+            }
+        }
+    }
+    
+    fn compileArrayExpr(node) {
+        var size = len(node.elements) * 8
+        this.emit("    mov rcx, " + size)
+        this.emit("    call malloc")
+        this.emit("    push rax") // array ptr is now at [rsp]
+        
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.elements) {
+                loop = 0
+            } else {
+                this.compileExpression(node.elements[i]) // element in rax
+                this.emit("    mov rbx, QWORD PTR [rsp]")
+                var offset = i * 8
+                this.emit("    mov QWORD PTR [rbx + " + offset + "], rax")
+                i = i + 1
+            }
+        }
+        this.emit("    pop rax") // restore array ptr to rax
+    }
+    
+    fn compileIndexExpr(node) {
+        this.compileExpression(node.index)
+        this.emit("    push rax")
+        this.compileExpression(node.ds)
+        this.emit("    pop rbx")
+        this.emit("    mov rax, QWORD PTR [rax + rbx * 8]")
+    }
+    
+    fn compileIndexAssignExpr(node) {
+        this.compileExpression(node.value)
+        this.emit("    push rax")
+        this.compileExpression(node.index)
+        this.emit("    push rax")
+        this.compileExpression(node.ds)
+        this.emit("    pop rbx")
+        this.emit("    pop rcx")
+        this.emit("    mov QWORD PTR [rax + rbx * 8], rcx")
+        this.emit("    mov rax, rcx")
+    }
+    
+    fn compileGetExpr(node) {
+        this.compileExpression(node.obj)
+        var offset = this.getPropertyOffset(node.name)
+        this.emit("    mov rax, QWORD PTR [rax + " + offset + "]")
+    }
+    
+    fn compileSetExpr(node) {
+        this.compileExpression(node.value)
+        this.emit("    push rax")
+        this.compileExpression(node.obj)
+        this.emit("    pop rbx")
+        var offset = this.getPropertyOffset(node.name)
+        this.emit("    mov QWORD PTR [rax + " + offset + "], rbx")
+        this.emit("    mov rax, rbx")
+    }
+    
+    fn compileNewExpr(node) {
+        this.emit("    mov rcx, 1024")
+        this.emit("    call malloc")
+        this.emit("    push rax")
+        this.emit("    mov rcx, rax")
+        this.emit("    call " + node.className + "_init")
+        this.emit("    pop rax")
+    }
+}
+// ---------------------------------------------------------
+// Module: aurac.aura
+// Purpose: Main AOT Compiler Executable (Phase 3)
+// Description: Compiles a .aura source file into an x86-64 
+//              assembly file (.s) compatible with GCC.
+// ---------------------------------------------------------
+
+fn main() {
+    print("---------------------------------------------")
+    print("Aura Native AOT Compiler v1.0 (x86-64)")
+    print("---------------------------------------------")
+    
+    // We will hardcode the source and destination for Phase 3 Validation
+    // Future iterations will pull from sys.argv
+    var sourceFile = "build_aurac.aura"
+    var outFile = "main.s"
+    
+    print("Compiling: " + sourceFile + " -> " + outFile)
+    
+    // Read source code
+    var code = file_read(sourceFile)
+    
+    // Phase 1: Lexing
+    var lexer = Lexer()
+    lexer.init(code)
+    var tokens = lexer.tokenize()
+    
+    // Phase 1: Parsing
+    var parser = Parser()
+    parser.init(tokens)
+    var ast = parser.parse()
+    
+    // Phase 2: Semantic Analysis (Type Checking)
+    var checker = TypeChecker()
+    checker.init()
+    checker.check(ast)
+    
+    if (len(checker.errors) > 0) {
+        print("")
+        print("COMPILATION FAILED: Semantic Errors Detected")
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(checker.errors) {
+                loop = 0
+            } else {
+                print(" -> " + checker.errors[i])
+                i = i + 1
+            }
+        }
+        return 0
+    }
+    
+    // Phase 3: x86-64 Assembly Generation
+    var compiler = X64Compiler()
+    compiler.init()
+    var asm = compiler.compile(ast)
+    
+    // Write assembly to output file
+    file_write(outFile, asm)
+    
+    print("Successfully compiled to " + outFile)
+    print("To assemble and run, execute:")
+    print("  gcc " + outFile + " -o " + outFile + ".exe")
+    print("  .\\" + outFile + ".exe")
+    print("---------------------------------------------")
+}
+
+main()

@@ -1,0 +1,86 @@
+// ---------------------------------------------------------
+// Module: tests/core/parser/test_lexer.aura
+// Purpose: Unit tests for the Lexer module
+// ---------------------------------------------------------
+
+// We must include the lexer source since Aura currently doesn't have an import system
+var lexer_source = file_read("src/core/parser/lexer.aura")
+// wait, we can't 'eval' easily unless we just compile them together.
+// For now, let's write the test cases that we will append to the end of lexer.aura during testing, 
+// or run directly using the aot_compiler if it supports multiple files.
+// Since AOT compiler only takes one file right now, we will test by concatenating.
+
+fn assert_token(token, expected_type, expected_text) {
+    if token.type != expected_type {
+        print("FAIL: Expected type " + expected_type + ", got " + token.type)
+        return 0
+    }
+    if token.text != expected_text {
+        print("FAIL: Expected text '" + expected_text + "', got '" + token.text + "'")
+        return 0
+    }
+    return 1
+}
+
+fn test_lexer() {
+    print("Running Lexer Tests...")
+    var passed = 0
+    var total = 0
+    
+    // Test 1: Keywords and Identifiers
+    var code1 = "fn myFunc() { var x = 10 }"
+    var lex1 = Lexer()
+    lex1.init(code1)
+    var tokens1 = lex1.tokenize()
+    // fn, myFunc, (, ), {, var, x, =, 10, }, EOF -> 11 tokens
+    
+    total = total + 5
+    passed = passed + assert_token(tokens1[0], "FN", "fn")
+    passed = passed + assert_token(tokens1[1], "IDENTIFIER", "myFunc")
+    passed = passed + assert_token(tokens1[4], "LBRACE", "{")
+    passed = passed + assert_token(tokens1[7], "ASSIGN", "=")
+    passed = passed + assert_token(tokens1[8], "NUMBER", "10")
+    
+    // Test 2: Strings and Escapes
+    var code2 = "\"hello\\nworld\""
+    var lex2 = Lexer()
+    lex2.init(code2)
+    var tokens2 = lex2.tokenize()
+    total = total + 1
+    // "\n" is one newline character
+    passed = passed + assert_token(tokens2[0], "STRING", "hello\nworld")
+    
+    // Test 3: Operators and multi-char punctuation
+    var code3 = "a != b <= c >= d == e"
+    var lex3 = Lexer()
+    lex3.init(code3)
+    var tokens3 = lex3.tokenize()
+    total = total + 4
+    passed = passed + assert_token(tokens3[1], "NEQ", "!=")
+    passed = passed + assert_token(tokens3[3], "LTE", "<=")
+    passed = passed + assert_token(tokens3[5], "GTE", ">=")
+    passed = passed + assert_token(tokens3[7], "EQ", "==")
+
+    // Test 4: Comments and Whitespace
+    var code4 = "  // skip this\nvar y = 2"
+    var lex4 = Lexer()
+    lex4.init(code4)
+    var tokens4 = lex4.tokenize()
+    total = total + 2
+    passed = passed + assert_token(tokens4[0], "VAR", "var")
+    passed = passed + assert_token(tokens4[1], "IDENTIFIER", "y")
+    
+    // Test 5: Source mapping (Line/Col)
+    var code5 = "x\ny\n  z"
+    var lex5 = Lexer()
+    lex5.init(code5)
+    var tokens5 = lex5.tokenize()
+    total = total + 3
+    if tokens5[0].position.line == 1 { passed = passed + 1 } else { print("FAIL Line 1") }
+    if tokens5[1].position.line == 2 { passed = passed + 1 } else { print("FAIL Line 2") }
+    if tokens5[2].position.line == 3 { passed = passed + 1 } else { print("FAIL Line 3") }
+
+    print("Lexer Tests Completed: " + passed + " / " + total + " passed.")
+}
+
+test_lexer()

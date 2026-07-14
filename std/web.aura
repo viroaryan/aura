@@ -1,0 +1,20 @@
+class Server {
+    fn create(port, sockAddrInt) {
+        this.port = port;
+        var wsaData = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; 
+        WSAStartup(514, wsaData);
+        this.serverSocket = socket(2, 1, 6);
+        
+        var sockaddr = [sockAddrInt, 0];
+        bind(this.serverSocket, sockaddr, 16);
+        listen(this.serverSocket, 10);
+    }
+    
+    fn acceptConn() {
+        return accept(this.serverSocket, 0, 0);
+    }
+    
+    fn shutdown() {
+        closesocket(this.serverSocket);
+    }
+}

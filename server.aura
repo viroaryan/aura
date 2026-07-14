@@ -1,25 +1,41 @@
-print("========================================")
-print("  AURA NATIVE WEB ENGINE TEST           ")
-print("========================================\n")
-
-var html = "
-<html>
-<head>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f172a; color: white; text-align: center; padding: 50px; }
-        h1 { font-size: 3rem; background: linear-gradient(90deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .card { background: #1e293b; padding: 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: inline-block; margin-top: 20px; }
-    </style>
-</head>
-<body>
-    <div class='card'>
-        <h1>Hello from Aura Web! 🚀</h1>
-        <p>This entire web server is running natively inside the C++ AuraVM!</p>
-        <p>Powered by cpp-httplib & Aura Language</p>
-    </div>
-</body>
-</html>
-"
-
-print("Starting native HTTP server...")
-server_start(8080, html)
+fn main() {
+    print("---------------------------------------");
+    print("Aura Native Web Server (x86-64 Native)");
+    print("Port: 8085");
+    print("---------------------------------------");
+    
+    var wsaData = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; 
+    var wsaRes = WSAStartup(514, wsaData);
+    if (wsaRes != 0) {
+        print("WSAStartup failed.");
+        return 1;
+    }
+    
+    var serverSocket = socket(2, 1, 6);
+    var sockaddr = [2501836802, 0];
+    var bindRes = bind(serverSocket, sockaddr, 16);
+    if (bindRes != 0) {
+        print("Bind failed. Is port 8085 in use?");
+        return 1;
+    }
+    
+    listen(serverSocket, 10);
+    print("Waiting for connections...");
+    
+    var clientSocket = accept(serverSocket, 0, 0);
+    print("Client connected!");
+    
+    var reqBuf = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+    recv(clientSocket, reqBuf, 512, 0);
+    print("Received HTTP request.");
+    
+    var res = "HTTP/1.1 200 OK\\nContent-Type: text/html\\n\\n<html><body style='font-family:sans-serif;text-align:center;margin-top:50px;'><h1>Hello from Aura Native Engine!</h1><p>Running natively on x86-64 without C++!</p></body></html>";
+    send(clientSocket, res, 216, 0);
+    print("Response sent.");
+    
+    closesocket(clientSocket);
+    closesocket(serverSocket);
+    
+    print("Server shut down successfully.");
+    return 0;
+}

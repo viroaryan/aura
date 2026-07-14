@@ -1,0 +1,62 @@
+// ---------------------------------------------------------
+// Module: tests/core/parser/test_integration.aura
+// Purpose: Integration test and benchmarking for Lexer + Parser
+// ---------------------------------------------------------
+
+fn test_integration() {
+    print("Running Lexer + Parser Integration Test...")
+    
+    // Create a moderately complex script to parse
+    var script = "
+        class Vector {
+            fn init(x, y) {
+                this.x = x;
+                this.y = y;
+            }
+            fn add(other) {
+                return Vector(this.x + other.x, this.y + other.y);
+            }
+        }
+        
+        fn main() {
+            var v1 = Vector(10, 20);
+            var v2 = Vector(30, 40);
+            var result = v1.add(v2);
+            if (result.x > 30) {
+                print(\"Success\");
+            } else {
+                print(\"Failure\");
+            }
+            
+            var loop = 0;
+            while (loop < 100) {
+                loop = loop + 1;
+            }
+        }
+    "
+    
+    // Let's parse it 50 times to get a decent benchmark
+    var iterations = 50
+    var iter = 0
+    
+    while iter < iterations {
+        var lexer = Lexer()
+        lexer.init(script)
+        var tokens = lexer.tokenize()
+        
+        var parser = Parser()
+        parser.init(tokens)
+        var ast = parser.parse()
+        
+        if ast.base.type != "PROGRAM" {
+            print("Integration Test Failed on iteration " + iter)
+            return 0
+        }
+        
+        iter = iter + 1
+    }
+    
+    print("Integration Test Passed! Parsed " + iterations + " times successfully.")
+}
+
+test_integration()

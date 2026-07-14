@@ -1,0 +1,16 @@
+class Tensor {
+    fn set(val) {
+        this.data = val;
+    }
+    
+    fn get() {
+        return this.data;
+    }
+}
+
+fn main() {
+    var t = new Tensor();
+    t.set(99);
+    var x = t.get();
+    return x;
+}

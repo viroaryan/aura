@@ -1,140 +1,204 @@
 print("========================================")
-print("  Aura Compiler (Self-Hosted) - V1.0    ")
+print("  Aura AOT Compiler - V2.0 (Full)       ")
 print("========================================")
 
 // ----------------------------------------
-// 1. LEXICAL ANALYSIS (Lexer)
+// 1. LEXER (Tokenizer)
 // ----------------------------------------
 
 class Token {
-    fn init(type, value, line) {
+    fn init(type, value) {
         this.type = type
         this.value = value
-        this.line = line
     }
     fn toString() {
         return "Token(" + this.type + ", \"" + this.value + "\")"
     }
 }
 
+fn createToken(type, value) {
+    var t = Token()
+    t.init(type, value)
+    return t
+}
+
 class Lexer {
     fn init(source) {
         this.source = source
         this.pos = 0
-        this.line = 1
         this.length = len(source)
-        this.currentChar = ""
-        if this.length > 0 { this.currentChar = string_char_at(this.source, 0) }
+    }
+
+    fn peek() {
+        if this.pos < this.length { return string_char_at(this.source, this.pos) }
+        return ""
     }
 
     fn advance() {
+        var ch = this.peek()
         this.pos = this.pos + 1
-        if this.pos < this.length { this.currentChar = string_char_at(this.source, this.pos) } 
-        else { this.currentChar = "" }
+        return ch
     }
 
     fn skipWhitespace() {
-        while this.currentChar != "" and char_is_space(this.currentChar) {
-            if this.currentChar == "\n" { this.line = this.line + 1 }
-            this.advance()
+        var loop = 1
+        while loop == 1 {
+            if this.pos >= this.length { loop = 0 }
+            else {
+                var ch = this.peek()
+                if ch == "/" {
+                    if this.pos + 1 < this.length {
+                        var next = string_char_at(this.source, this.pos + 1)
+                        if next == "/" {
+                            var inner = 1
+                            while inner == 1 {
+                                if this.pos >= this.length { inner = 0 }
+                                else if this.peek() == string_char_at("\n", 0) { inner = 0 }
+                                else { this.advance() }
+                            }
+                        } else { loop = 0 }
+                    } else { loop = 0 }
+                } else if char_is_space(ch) { this.advance() }
+                else { loop = 0 }
+            }
         }
     }
 
     fn tokenize() {
         var tokens = []
-        while this.currentChar != "" {
-            if char_is_space(this.currentChar) {
-                this.skipWhitespace()
-            } else if char_is_alpha(this.currentChar) {
-                var startPos = this.pos
-                while this.currentChar != "" and (char_is_alpha(this.currentChar) or char_is_digit(this.currentChar)) {
+        var loop = 1
+        while loop == 1 {
+            this.skipWhitespace()
+            if this.pos >= this.length { loop = 0 }
+            else {
+                var ch = this.peek()
+            
+            if char_is_digit(ch) {
+                var num = ""
+                var inner1 = 1
+                while inner1 == 1 {
+                    if this.pos >= this.length { inner1 = 0 }
+                    else if char_is_digit(this.peek()) { num = num + this.advance() }
+                    else { inner1 = 0 }
+                }
+                array_push(tokens, createToken("NUMBER", num))
+            } else if char_is_alpha(ch) {
+                var word = ""
+                var inner2 = 1
+                while inner2 == 1 {
+                    if this.pos >= this.length { inner2 = 0 }
+                    else {
+                        var c = this.peek()
+                        if char_is_alpha(c) or char_is_digit(c) { word = word + this.advance() }
+                        else { inner2 = 0 }
+                    }
+                }
+                if word == "var" { array_push(tokens, createToken("VAR", word)) }
+                else if word == "print" { array_push(tokens, createToken("PRINT", word)) }
+                else if word == "if" { array_push(tokens, createToken("IF", word)) }
+                else if word == "else" { array_push(tokens, createToken("ELSE", word)) }
+                else if word == "while" { array_push(tokens, createToken("WHILE", word)) }
+                else if word == "fn" { array_push(tokens, createToken("FN", word)) }
+                else if word == "return" { array_push(tokens, createToken("RETURN", word)) }
+                else { array_push(tokens, createToken("IDENTIFIER", word)) }
+            } else if ch == "=" {
+                this.advance()
+                if this.peek() == "=" {
                     this.advance()
+                    array_push(tokens, createToken("EQ", "=="))
+                } else {
+                    array_push(tokens, createToken("EQUALS", "="))
                 }
-                var value = string_substring(this.source, startPos, this.pos - startPos)
-                var type = "IDENTIFIER"
-                if value == "var" { type = "VAR" }
-                if value == "print" { type = "PRINT" }
-                if value == "fn" { type = "FN" }
-                if value == "class" { type = "CLASS" }
-                if value == "return" { type = "RETURN" }
-                if value == "if" { type = "IF" }
-                if value == "else" { type = "ELSE" }
-                
-                var t = Token()
-                t.init(type, value, this.line)
-                array_push(tokens, t)
-            } else if char_is_digit(this.currentChar) {
-                var startPos = this.pos
-                while this.currentChar != "" and char_is_digit(this.currentChar) { this.advance() }
-                var value = string_substring(this.source, startPos, this.pos - startPos)
-                var t = Token()
-                t.init("NUMBER", value, this.line)
-                array_push(tokens, t)
-            } else if this.currentChar == "=" {
+            } else if ch == "!" {
                 this.advance()
-                var t = Token()
-                if this.currentChar == "=" { 
-                    t.init("EQ", "==", this.line)
-                    this.advance() 
-                } 
-                else { t.init("EQUALS", "=", this.line) }
-                array_push(tokens, t)
-            } else if this.currentChar == "\"" {
+                if this.peek() == "=" {
+                    this.advance()
+                    array_push(tokens, createToken("NE", "!="))
+                } else {
+                    array_push(tokens, createToken("NOT", "!"))
+                }
+            } else if ch == "<" {
                 this.advance()
-                var startPos = this.pos
-                while this.currentChar != "" and this.currentChar != "\"" { this.advance() }
-                var value = string_substring(this.source, startPos, this.pos - startPos)
-                var t = Token()
-                t.init("STRING", value, this.line)
-                array_push(tokens, t)
+                if this.peek() == "=" {
+                    this.advance()
+                    array_push(tokens, createToken("LE", "<="))
+                } else {
+                    array_push(tokens, createToken("LT", "<"))
+                }
+            } else if ch == ">" {
                 this.advance()
+                if this.peek() == "=" {
+                    this.advance()
+                    array_push(tokens, createToken("GE", ">="))
+                } else {
+                    array_push(tokens, createToken("GT", ">"))
+                }
+            } else if ch == "+" {
+                this.advance()
+                array_push(tokens, createToken("PLUS", "+"))
+            } else if ch == "-" {
+                this.advance()
+                array_push(tokens, createToken("MINUS", "-"))
+            } else if ch == "*" {
+                this.advance()
+                array_push(tokens, createToken("MUL", "*"))
+            } else if ch == "/" {
+                this.advance()
+                array_push(tokens, createToken("DIV", "/"))
+            } else if ch == "(" {
+                this.advance()
+                array_push(tokens, createToken("LPAREN", "("))
+            } else if ch == ")" {
+                this.advance()
+                array_push(tokens, createToken("RPAREN", ")"))
+            } else if ch == "{" {
+                this.advance()
+                array_push(tokens, createToken("LBRACE", "{"))
+            } else if ch == "}" {
+                this.advance()
+                array_push(tokens, createToken("RBRACE", "}"))
+            } else if ch == "," {
+                this.advance()
+                array_push(tokens, createToken("COMMA", ","))
             } else {
-                var c = this.currentChar
-                var t_type = "UNKNOWN"
-                if c == "+" { t_type = "PLUS" }
-                if c == "-" { t_type = "MINUS" }
-                if c == "*" { t_type = "MUL" }
-                if c == "/" { t_type = "DIV" }
-                if c == "(" { t_type = "LPAREN" }
-                if c == ")" { t_type = "RPAREN" }
-                if c == "{" { t_type = "LBRACE" }
-                if c == "}" { t_type = "RBRACE" }
-                if c == "[" { t_type = "LBRACKET" }
-                if c == "]" { t_type = "RBRACKET" }
-                
-                if t_type != "UNKNOWN" {
-                    var t = Token()
-                    t.init(t_type, c, this.line)
-                    array_push(tokens, t)
-                }
                 this.advance()
             }
+            } // Close the 'else {' block added for the loop
         }
-        var eof = Token()
-        eof.init("EOF", "", this.line)
-        array_push(tokens, eof)
+        array_push(tokens, createToken("EOF", ""))
         return tokens
     }
 }
 
 // ----------------------------------------
-// 2. SYNTAX ANALYSIS (Parser)
+// 2. AST NODES
 // ----------------------------------------
 
 class ASTNode {
     fn init(type) {
         this.type = type
-    }
-    
-    fn toString() {
-        if this.type == "Literal" { return "Literal(" + this.value + ")" }
-        if this.type == "Identifier" { return "Identifier(" + this.name + ")" }
-        if this.type == "Binary" { return "Binary(" + this.op + " " + this.left.toString() + ", " + this.right.toString() + ")" }
-        if this.type == "VarDecl" { return "VarDecl(" + this.name + " = " + this.expr.toString() + ")" }
-        if this.type == "Print" { return "Print(" + this.expr.toString() + ")" }
-        return "UnknownNode"
+        this.value = ""
+        this.name = ""
+        this.op = ""
+        this.left = ""
+        this.right = ""
+        this.expr = ""
+        this.body = []
+        this.elseBody = []
+        this.condition = ""
+        this.params = []
     }
 }
+
+fn createASTNode(type) {
+    var n = ASTNode()
+    n.init(type)
+    return n
+}
+
+// ----------------------------------------
+// 3. PARSER (Full-Featured)
+// ----------------------------------------
 
 class Parser {
     fn init(tokens) {
@@ -154,8 +218,7 @@ class Parser {
     }
 
     fn match(type) {
-        var t = this.peek()
-        if t.type == type {
+        if this.peek().type == type {
             this.advance()
             return true
         }
@@ -163,43 +226,58 @@ class Parser {
     }
 
     fn consume(type, message) {
-        var t = this.peek()
-        if t.type == type { return this.advance() }
-        print("Parser Error: " + message)
-        return t
+        if this.peek().type == type { return this.advance() }
+        print("Parser Error: " + message + " (got " + this.peek().type + ")")
+        return this.peek()
     }
 
     fn parsePrimary() {
-        var t = this.advance()
-        var node = ASTNode()
+        var t = this.peek()
         
         if t.type == "NUMBER" or t.type == "STRING" {
-            node.init("Literal")
+            this.advance()
+            var node = createASTNode("Literal")
             node.value = t.value
             return node
         }
         if t.type == "IDENTIFIER" {
-            node.init("Identifier")
+            this.advance()
+            // Check for function call
+            if this.peek().type == "LPAREN" {
+                this.advance() // consume (
+                var node = createASTNode("Call")
+                node.name = t.value
+                node.args = []
+                if this.peek().type != "RPAREN" {
+                    array_push(node.args, this.parseExpression())
+                    while this.match("COMMA") {
+                        array_push(node.args, this.parseExpression())
+                    }
+                }
+                this.consume("RPAREN", "Expected ')'")
+                return node
+            }
+            var node = createASTNode("Identifier")
             node.name = t.value
             return node
         }
         if t.type == "LPAREN" {
+            this.advance()
             var expr = this.parseExpression()
             this.consume("RPAREN", "Expected ')'")
             return expr
         }
         
-        node.init("Unknown")
-        return node
+        this.advance()
+        return createASTNode("Unknown")
     }
 
     fn parseMultiplicative() {
         var left = this.parsePrimary()
-        while this.match("MUL") or this.match("DIV") {
-            var opToken = this.tokens[this.pos - 1]
+        while this.peek().type == "MUL" or this.peek().type == "DIV" {
+            var opToken = this.advance()
             var right = this.parsePrimary()
-            var node = ASTNode()
-            node.init("Binary")
+            var node = createASTNode("Binary")
             node.left = left
             node.right = right
             node.op = opToken.value
@@ -210,11 +288,24 @@ class Parser {
 
     fn parseAdditive() {
         var left = this.parseMultiplicative()
-        while this.match("PLUS") or this.match("MINUS") {
-            var opToken = this.tokens[this.pos - 1]
+        while this.peek().type == "PLUS" or this.peek().type == "MINUS" {
+            var opToken = this.advance()
             var right = this.parseMultiplicative()
-            var node = ASTNode()
-            node.init("Binary")
+            var node = createASTNode("Binary")
+            node.left = left
+            node.right = right
+            node.op = opToken.value
+            left = node
+        }
+        return left
+    }
+
+    fn parseComparison() {
+        var left = this.parseAdditive()
+        while this.peek().type == "LT" or this.peek().type == "GT" or this.peek().type == "LE" or this.peek().type == "GE" or this.peek().type == "EQ" or this.peek().type == "NE" {
+            var opToken = this.advance()
+            var right = this.parseAdditive()
+            var node = createASTNode("Binary")
             node.left = left
             node.right = right
             node.op = opToken.value
@@ -224,7 +315,21 @@ class Parser {
     }
 
     fn parseExpression() {
-        return this.parseAdditive()
+        return this.parseComparison()
+    }
+
+    fn parseBlock() {
+        this.consume("LBRACE", "Expected '{'")
+        var stmts = []
+        var loop = 1
+        while loop == 1 {
+            if this.pos >= len(this.tokens) { loop = 0 }
+            else if this.peek().type == "RBRACE" { loop = 0 }
+            else if this.peek().type == "EOF" { loop = 0 }
+            else { array_push(stmts, this.parseStatement()) }
+        }
+        this.consume("RBRACE", "Expected '}'")
+        return stmts
     }
 
     fn parseStatement() {
@@ -232,8 +337,7 @@ class Parser {
             var nameToken = this.consume("IDENTIFIER", "Expected variable name.")
             this.consume("EQUALS", "Expected '='")
             var expr = this.parseExpression()
-            var node = ASTNode()
-            node.init("VarDecl")
+            var node = createASTNode("VarDecl")
             node.name = nameToken.value
             node.expr = expr
             return node
@@ -243,99 +347,327 @@ class Parser {
             this.consume("LPAREN", "Expected '('")
             var expr = this.parseExpression()
             this.consume("RPAREN", "Expected ')'")
-            var node = ASTNode()
-            node.init("Print")
+            var node = createASTNode("Print")
             node.expr = expr
             return node
         }
-        
-        return this.parseExpression()
+
+        if this.match("IF") {
+            this.consume("LPAREN", "Expected '('")
+            var cond = this.parseExpression()
+            this.consume("RPAREN", "Expected ')'")
+            var body = this.parseBlock()
+            var node = createASTNode("If")
+            node.condition = cond
+            node.body = body
+            node.elseBody = []
+            if this.match("ELSE") {
+                node.elseBody = this.parseBlock()
+            }
+            return node
+        }
+
+        if this.match("WHILE") {
+            this.consume("LPAREN", "Expected '('")
+            var cond = this.parseExpression()
+            this.consume("RPAREN", "Expected ')'")
+            var body = this.parseBlock()
+            var node = createASTNode("While")
+            node.condition = cond
+            node.body = body
+            return node
+        }
+
+        if this.match("FN") {
+            var nameToken = this.consume("IDENTIFIER", "Expected function name.")
+            this.consume("LPAREN", "Expected '('")
+            var params = []
+            if this.peek().type != "RPAREN" {
+                array_push(params, this.consume("IDENTIFIER", "Expected param name").value)
+                while this.match("COMMA") {
+                    array_push(params, this.consume("IDENTIFIER", "Expected param name").value)
+                }
+            }
+            this.consume("RPAREN", "Expected ')'")
+            var body = this.parseBlock()
+            var node = createASTNode("FnDecl")
+            node.name = nameToken.value
+            node.params = params
+            node.body = body
+            return node
+        }
+
+        if this.match("RETURN") {
+            var node = createASTNode("Return")
+            node.expr = this.parseExpression()
+            return node
+        }
+
+        // Assignment: x = expr
+        var expr = this.parseExpression()
+        if expr.type == "Identifier" {
+            if this.match("EQUALS") {
+                var val = this.parseExpression()
+                var node = createASTNode("Assign")
+                node.name = expr.name
+                node.expr = val
+                return node
+            }
+        }
+        return expr
     }
 
     fn parse() {
         var statements = []
         while this.peek().type != "EOF" {
-            var stmt = this.parseStatement()
-            array_push(statements, stmt)
+            array_push(statements, this.parseStatement())
         }
         return statements
     }
 }
 
 // ----------------------------------------
-// 3. CODE GENERATION (AOT Assembly Compiler)
+// 4. AOT x86-64 ASSEMBLY CODE GENERATOR
 // ----------------------------------------
 
 class AOTCompiler {
     fn init() {
         this.asm = ""
         this.vars = []
+        this.fns = []
+        this.label_count = 0
+        this.string_count = 0
+        this.strings = []
+    }
+
+    fn newLabel() {
+        this.label_count = this.label_count + 1
+        return ".L" + this.label_count
     }
 
     fn emit(line) {
         this.asm = this.asm + "    " + line + "\n"
     }
 
+    fn emitLabel(label) {
+        this.asm = this.asm + label + ":\n"
+    }
+
+    fn addString(str) {
+        this.string_count = this.string_count + 1
+        var name = "str_" + this.string_count
+        array_push(this.strings, name)
+        array_push(this.strings, str)
+        return name
+    }
+
     fn compileNode(node) {
         if node.type == "Literal" {
             this.emit("movq $" + node.value + ", %rax")
             this.emit("pushq %rax")
+
         } else if node.type == "Identifier" {
             this.emit("movq var_" + node.name + "(%rip), %rax")
             this.emit("pushq %rax")
+
         } else if node.type == "Binary" {
             this.compileNode(node.left)
             this.compileNode(node.right)
-            
-            this.emit("popq %rbx") // Right operand
-            this.emit("popq %rax") // Left operand
+            this.emit("popq %rbx")
+            this.emit("popq %rax")
             
             if node.op == "+" { this.emit("addq %rbx, %rax") }
             else if node.op == "-" { this.emit("subq %rbx, %rax") }
             else if node.op == "*" { this.emit("imulq %rbx, %rax") }
-            else if node.op == "/" { 
-                this.emit("cqto") 
-                this.emit("idivq %rbx") 
+            else if node.op == "/" {
+                this.emit("cqto")
+                this.emit("idivq %rbx")
+            }
+            else if node.op == "==" or node.op == "!=" or node.op == "<" or node.op == ">" or node.op == "<=" or node.op == ">=" {
+                this.emit("cmpq %rbx, %rax")
+                if node.op == "==" { this.emit("sete %al") }
+                else if node.op == "!=" { this.emit("setne %al") }
+                else if node.op == "<" { this.emit("setl %al") }
+                else if node.op == ">" { this.emit("setg %al") }
+                else if node.op == "<=" { this.emit("setle %al") }
+                else if node.op == ">=" { this.emit("setge %al") }
+                this.emit("movzbq %al, %rax")
             }
             this.emit("pushq %rax")
+
         } else if node.type == "VarDecl" {
             this.compileNode(node.expr)
             array_push(this.vars, node.name)
             this.emit("popq %rax")
             this.emit("movq %rax, var_" + node.name + "(%rip)")
+
+        } else if node.type == "Assign" {
+            this.compileNode(node.expr)
+            this.emit("popq %rax")
+            this.emit("movq %rax, var_" + node.name + "(%rip)")
+
         } else if node.type == "Print" {
             this.compileNode(node.expr)
-            this.emit("popq %rdx") // Printf value arg
-            this.emit("leaq format_num(%rip), %rcx") // Printf format string arg
-            this.emit("subq $32, %rsp") // Windows x64 ABI shadow space + alignment
+            this.emit("popq %rdx")
+            this.emit("leaq format_num(%rip), %rcx")
+            this.emit("subq $32, %rsp")
             this.emit("call printf")
             this.emit("addq $32, %rsp")
+
+        } else if node.type == "If" {
+            var else_label = this.newLabel()
+            var end_label = this.newLabel()
+            // Compile condition
+            this.compileNode(node.condition)
+            this.emit("popq %rax")
+            this.emit("testq %rax, %rax")
+            this.emit("je " + else_label)
+            // Compile body
+            var i = 0
+            while i < len(node.body) {
+                this.compileNode(node.body[i])
+                i = i + 1
+            }
+            this.emit("jmp " + end_label)
+            // Else label
+            this.emitLabel(else_label)
+            var j = 0
+            while j < len(node.elseBody) {
+                this.compileNode(node.elseBody[j])
+                j = j + 1
+            }
+            this.emitLabel(end_label)
+
+        } else if node.type == "While" {
+            var loop_start = this.newLabel()
+            var loop_end = this.newLabel()
+            this.emitLabel(loop_start)
+            // Compile condition
+            this.compileNode(node.condition)
+            this.emit("popq %rax")
+            this.emit("testq %rax, %rax")
+            this.emit("je " + loop_end)
+            // Compile body
+            var i = 0
+            while i < len(node.body) {
+                this.compileNode(node.body[i])
+                i = i + 1
+            }
+            this.emit("jmp " + loop_start)
+            this.emitLabel(loop_end)
+
+        } else if node.type == "FnDecl" {
+            array_push(this.fns, node)
+
+        } else if node.type == "Call" {
+            // Push args in reverse
+            var i = len(node.args) - 1
+            while i >= 0 {
+                this.compileNode(node.args[i])
+                i = i - 1
+            }
+            // Pop args into Windows x64 registers (rcx, rdx, r8, r9)
+            if len(node.args) >= 1 { this.emit("popq %rcx") }
+            if len(node.args) >= 2 { this.emit("popq %rdx") }
+            if len(node.args) >= 3 { this.emit("popq %r8") }
+            if len(node.args) >= 4 { this.emit("popq %r9") }
+            this.emit("subq $32, %rsp")
+            this.emit("call aura_" + node.name)
+            this.emit("addq $32, %rsp")
+            this.emit("pushq %rax")
+
+        } else if node.type == "Return" {
+            this.compileNode(node.expr)
+            this.emit("popq %rax")
+            this.emit("popq %rbp")
+            this.emit("ret")
         }
     }
 
-    fn compileAST(ast) {
-        var header = "    .global main\n    .extern printf\n\n    .data\nformat_num:\n    .asciz \"%d\\n\"\n"
-        this.asm = this.asm + header
-        
-        var i = 0
-        while i < len(ast) {
-            var node = ast[i]
-            if node.type == "VarDecl" {
-                this.asm = this.asm + "var_" + node.name + ":\n    .quad 0\n"
-            }
-            i = i + 1
-        }
-        
-        this.asm = this.asm + "\n    .text\nmain:\n"
+    fn compileFunction(node) {
+        this.asm = this.asm + "\naura_" + node.name + ":\n"
         this.emit("pushq %rbp")
         this.emit("movq %rsp, %rbp")
-        
-        var j = 0
-        while j < len(ast) {
-            this.compileNode(ast[j])
-            j = j + 1
+        // Store params as variables
+        if len(node.params) >= 1 { 
+            array_push(this.vars, node.params[0])
+            this.emit("movq %rcx, var_" + node.params[0] + "(%rip)") 
         }
+        if len(node.params) >= 2 { 
+            array_push(this.vars, node.params[1])
+            this.emit("movq %rdx, var_" + node.params[1] + "(%rip)") 
+        }
+        if len(node.params) >= 3 { 
+            array_push(this.vars, node.params[2])
+            this.emit("movq %r8, var_" + node.params[2] + "(%rip)") 
+        }
+        // Compile body
+        var i = 0
+        while i < len(node.body) {
+            this.compileNode(node.body[i])
+            i = i + 1
+        }
+        // Default return
+        this.emit("movq $0, %rax")
+        this.emit("popq %rbp")
+        this.emit("ret")
+    }
+
+    fn compileAST(ast) {
+        // First pass: collect all VarDecl names and FnDecl
+        var i = 0
+        while i < len(ast) {
+            this.compileNode(ast[i])
+            i = i + 1
+        }
+
+        // Extract function parameters into variables
+        var fx = 0
+        while fx < len(this.fns) {
+            var fnNode = this.fns[fx]
+            var px = 0
+            while px < len(fnNode.params) {
+                array_push(this.vars, fnNode.params[px])
+                px = px + 1
+            }
+            fx = fx + 1
+        }
+
+        // Build data section
+        var data_section = "    .global main\n    .extern printf\n\n    .data\nformat_num:\n    .asciz \"%d\\n\"\n"
         
+        // Add all unique variables
+        var added = []
+        var v = 0
+        while v < len(this.vars) {
+            var found = false
+            var a = 0
+            while a < len(added) {
+                if added[a] == this.vars[v] { found = true }
+                a = a + 1
+            }
+            if found == false {
+                data_section = data_section + "var_" + this.vars[v] + ":\n    .quad 0\n"
+                array_push(added, this.vars[v])
+            }
+            v = v + 1
+        }
+
+        // Build text section with main
+        var main_code = this.asm
+        this.asm = data_section + "\n    .text\n"
+
+        // Compile functions first
+        var f = 0
+        while f < len(this.fns) {
+            this.compileFunction(this.fns[f])
+            f = f + 1
+        }
+
+        this.asm = this.asm + "\nmain:\n"
+        this.emit("pushq %rbp")
+        this.emit("movq %rsp, %rbp")
+        this.asm = this.asm + main_code
         this.emit("movq $0, %rax")
         this.emit("popq %rbp")
         this.emit("ret")
@@ -345,7 +677,7 @@ class AOTCompiler {
 }
 
 // ----------------------------------------
-// 4. EXECUTE AOT NATIVE COMPILER
+// 5. EXECUTE AOT NATIVE COMPILER
 // ----------------------------------------
 
 var source_code = file_read("test.aura")
@@ -355,25 +687,20 @@ print("----------------------------------------")
 print(source_code)
 print("----------------------------------------")
 
-// Step 1: Lexical Analysis
 var lexer = Lexer()
 lexer.init(source_code)
 var tokens = lexer.tokenize()
 
-// Step 2: Syntax Analysis
 var parser = Parser()
 parser.init(tokens)
 var ast = parser.parse()
 
-// Step 3: Native Assembly Generation
 var compiler = AOTCompiler()
 compiler.init()
 var asm_code = compiler.compileAST(ast)
 
-// Write to output.s
 file_write("output.s", asm_code)
 
-print("SUCCESS: Native Assembly written to output.s")
-print("========================================")
-print("  Bootstrapping Phase 5 Complete!       ")
-print("========================================")
+print("SUCCESS: Native x86-64 Assembly written to output.s")
+print("Aura AOT Compiler V2.0 Complete!")
+print("----------------------------------")

@@ -1,0 +1,20 @@
+class File {
+    fn open(filename) {
+        var GENERIC_READ = 2147483648; // 0x80000000
+        var OPEN_EXISTING = 3;
+        var FILE_ATTRIBUTE_NORMAL = 128;
+        this.handle = CreateFileA(filename, GENERIC_READ, 1, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    }
+    
+    fn read(size) {
+        // Allocate buffer
+        var buffer = malloc(size);
+        var bytesRead = [0];
+        ReadFile(this.handle, buffer, size, bytesRead, 0);
+        return buffer;
+    }
+    
+    fn close() {
+        CloseHandle(this.handle);
+    }
+}

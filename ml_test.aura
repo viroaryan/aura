@@ -1,0 +1,43 @@
+// Aura Standard ML Library (Native implementation)
+
+fn dot_product(v1, v2, length) {
+    var sum = 0;
+    var i = 0;
+    while (i < length) {
+        sum = sum + (v1[i] * v2[i]);
+        i = i + 1;
+    }
+    return sum;
+}
+
+fn relu(val) {
+    if (val < 0) {
+        return 0;
+    }
+    return val;
+}
+
+fn main() {
+    print("---------------------------------");
+    print("Aura Native ML Engine");
+    print("Running Neural Network Forward Pass");
+    print("---------------------------------");
+    
+    // Inputs (e.g. features)
+    var inputs = [2, 5, 1];
+    
+    // Weights
+    var weights = [4, 2, 8];
+    
+    // Dot product (Linear combination)
+    var dp = dot_product(inputs, weights, 3);
+    
+    // Bias
+    var bias = -20;
+    var z = dp + bias; 
+    
+    // Activation (ReLU)
+    var a = relu(z);
+    
+    return a;
+}

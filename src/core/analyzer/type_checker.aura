@@ -1,0 +1,303 @@
+// ---------------------------------------------------------
+// Module: core/analyzer/type_checker.aura
+// Purpose: AST Visitor for Semantic Analysis
+// Description: Traverses the AST, builds the symbol table,
+//              and enforces type safety and variable scoping.
+// ---------------------------------------------------------
+
+class TypeChecker {
+    fn init() {
+        this.symTable = SymbolTable()
+        this.symTable.init()
+        
+        this.errors = []
+        
+        // Define built-in functions
+        this.symTable.define("print", "FUNCTION", 0)
+        this.symTable.define("WSAStartup", "FUNCTION", 0)
+        this.symTable.define("socket", "FUNCTION", 0)
+        this.symTable.define("bind", "FUNCTION", 0)
+        this.symTable.define("listen", "FUNCTION", 0)
+        this.symTable.define("accept", "FUNCTION", 0)
+        this.symTable.define("recv", "FUNCTION", 0)
+        this.symTable.define("send", "FUNCTION", 0)
+        this.symTable.define("closesocket", "FUNCTION", 0)
+        
+        this.symTable.define("CreateFileA", "FUNCTION", 0)
+        this.symTable.define("ReadFile", "FUNCTION", 0)
+        this.symTable.define("WriteFile", "FUNCTION", 0)
+        this.symTable.define("CloseHandle", "FUNCTION", 0)
+    }
+    
+    fn reportError(message, line) {
+        var err = "Semantic Error at line " + line + ": " + message
+        array_push(this.errors, err)
+        print(err)
+    }
+    
+    // ----------------------------------------
+    // Dispatch
+    // ----------------------------------------
+    
+    fn check(node) {
+        if node == 0 { return 0 }
+        
+        if node.base.type == "PROGRAM" { return this.checkProgram(node) }
+        if node.base.type == "CLASS_DECL" { return this.checkClassDecl(node) }
+        if node.base.type == "FUNCTION_DECL" { return this.checkFunctionDecl(node) }
+        if node.base.type == "VAR_DECL" { return this.checkVarDecl(node) }
+        
+        if node.base.type == "BLOCK_STMT" { return this.checkBlockStmt(node) }
+        if node.base.type == "IF_STMT" { return this.checkIfStmt(node) }
+        if node.base.type == "WHILE_STMT" { return this.checkWhileStmt(node) }
+        if node.base.type == "RETURN_STMT" { return this.checkReturnStmt(node) }
+        if node.base.type == "EXPR_STMT" { return this.checkExprStmt(node) }
+        
+        if node.base.type == "BINARY_EXPR" { return this.checkBinaryExpr(node) }
+        if node.base.type == "UNARY_EXPR" { return this.checkUnaryExpr(node) }
+        if node.base.type == "LITERAL_EXPR" { return this.checkLiteralExpr(node) }
+        if node.base.type == "IDENTIFIER_EXPR" { return this.checkIdentifierExpr(node) }
+        if node.base.type == "ASSIGN_EXPR" { return this.checkAssignExpr(node) }
+        if node.base.type == "CALL_EXPR" { return this.checkCallExpr(node) }
+        if node.base.type == "ARRAY_EXPR" { return this.checkArrayExpr(node) }
+        if node.base.type == "INDEX_EXPR" { return this.checkIndexExpr(node) }
+        if node.base.type == "INDEX_ASSIGN_EXPR" { return this.checkIndexAssignExpr(node) }
+        if node.base.type == "GET_EXPR" { return this.checkGetExpr(node) }
+        if node.base.type == "SET_EXPR" { return this.checkSetExpr(node) }
+        if node.base.type == "NEW_EXPR" { return this.checkNewExpr(node) }
+        
+        this.reportError("Unknown AST node type: " + node.base.type, node.base.line)
+        return "UNKNOWN"
+    }
+    
+    // ----------------------------------------
+    // Declarations
+    // ----------------------------------------
+    
+    fn checkProgram(node) {
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.statements) {
+                loop = 0
+            } else {
+                this.check(node.statements[i])
+                i = i + 1
+            }
+        }
+        return "UNKNOWN"
+    }
+    
+    fn checkClassDecl(node) {
+        this.symTable.define(node.name, "CLASS", node)
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.methods) {
+                loop = 0
+            } else {
+                this.check(node.methods[i])
+                i = i + 1
+            }
+        }
+        return "UNKNOWN"
+    }
+    
+    fn checkFunctionDecl(node) {
+        var def = this.symTable.define(node.name, "FUNCTION", node)
+        if def == 0 {
+            this.reportError("Function '" + node.name + "' is already defined.", node.base.line)
+        }
+        
+        this.symTable.enterScope()
+        
+        // Define parameters
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.params) {
+                loop = 0
+            } else {
+                var p = node.params[i]
+                this.symTable.define(p, "VAR", 0) // Param node is just string for now
+                i = i + 1
+            }
+        }
+        
+        this.check(node.body)
+        
+        this.symTable.exitScope()
+        return "VOID"
+    }
+    
+    fn checkVarDecl(node) {
+        var initType = "UNKNOWN"
+        if node.initializer.base.type != "LITERAL_EXPR" or node.initializer.value != "null" {
+            initType = this.check(node.initializer)
+        }
+        
+        var def = this.symTable.define(node.name, "VAR", node)
+        if def == 0 {
+            this.reportError("Variable '" + node.name + "' is already defined in this scope.", node.base.line)
+        }
+        return "VOID"
+    }
+    
+    // ----------------------------------------
+    // Statements
+    // ----------------------------------------
+    
+    fn checkBlockStmt(node) {
+        this.symTable.enterScope()
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.statements) {
+                loop = 0
+            } else {
+                this.check(node.statements[i])
+                i = i + 1
+            }
+        }
+        this.symTable.exitScope()
+        return "VOID"
+    }
+    
+    fn checkIfStmt(node) {
+        var condType = this.check(node.condition)
+        // In Aura, everything might be truthy, but let's check it anyway.
+        this.check(node.thenBranch)
+        if node.elseBranch.base.type != "LITERAL_EXPR" or node.elseBranch.value != "null" {
+            this.check(node.elseBranch)
+        }
+        return "VOID"
+    }
+    
+    fn checkWhileStmt(node) {
+        this.check(node.condition)
+        this.check(node.body)
+        return "VOID"
+    }
+    
+    fn checkReturnStmt(node) {
+        if node.value.base.type != "LITERAL_EXPR" or node.value.value != "null" {
+            this.check(node.value)
+        }
+        return "VOID"
+    }
+    
+    fn checkExprStmt(node) {
+        this.check(node.expression)
+        return "VOID"
+    }
+    
+    // ----------------------------------------
+    // Expressions
+    // ----------------------------------------
+    
+    fn checkBinaryExpr(node) {
+        var left = this.check(node.left)
+        var right = this.check(node.right)
+        // Type rules will apply here later. For now, assume NUMBER for math.
+        if node.operator == "+" or node.operator == "-" or node.operator == "*" or node.operator == "/" {
+            return "NUMBER"
+        }
+        // Comparisons return BOOLEAN/NUMBER
+        return "NUMBER"
+    }
+    
+    fn checkUnaryExpr(node) {
+        var right = this.check(node.right)
+        return "NUMBER"
+    }
+    
+    fn checkLiteralExpr(node) {
+        if node.literalType == "STRING" { return "STRING" }
+        return "NUMBER" // Number, boolean, null
+    }
+    
+    fn checkIdentifierExpr(node) {
+        var sym = this.symTable.resolve(node.name)
+        if sym.type == "ERROR" {
+            this.reportError("Undefined variable '" + node.name + "'.", node.base.line)
+            return "UNKNOWN"
+        }
+        return "UNKNOWN" // We'd return the actual type if it was strongly typed
+    }
+    
+    fn checkAssignExpr(node) {
+        var valueType = this.check(node.value)
+        var sym = this.symTable.resolve(node.name)
+        if sym.type == "ERROR" {
+            this.reportError("Cannot assign to undefined variable '" + node.name + "'.", node.base.line)
+        }
+        return valueType
+    }
+    
+    fn checkCallExpr(node) {
+        var calleeType = this.check(node.callee)
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.args) {
+                loop = 0
+            } else {
+                this.check(node.args[i])
+                i = i + 1
+            }
+        }
+        return "UNKNOWN" // Function return type logic goes here
+    }
+    
+    fn checkArrayExpr(node) {
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.elements) {
+                loop = 0
+            } else {
+                this.check(node.elements[i])
+                i = i + 1
+            }
+        }
+        return "ARRAY"
+    }
+    
+    fn checkIndexExpr(node) {
+        this.check(node.ds)
+        this.check(node.index)
+        return "UNKNOWN"
+    }
+    
+    fn checkIndexAssignExpr(node) {
+        this.check(node.ds)
+        this.check(node.index)
+        this.check(node.value)
+        return "UNKNOWN"
+    }
+    
+    fn checkGetExpr(node) {
+        this.check(node.obj)
+        return "UNKNOWN"
+    }
+    
+    fn checkSetExpr(node) {
+        this.check(node.obj)
+        this.check(node.value)
+        return "UNKNOWN"
+    }
+    
+    fn checkNewExpr(node) {
+        var i = 0
+        var loop = 1
+        while loop == 1 {
+            if i >= len(node.args) {
+                loop = 0
+            } else {
+                this.check(node.args[i])
+                i = i + 1
+            }
+        }
+        return "INSTANCE"
+    }
+}
