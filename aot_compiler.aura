@@ -1,0 +1,379 @@
+print("========================================")
+print("  Aura Compiler (Self-Hosted) - V1.0    ")
+print("========================================")
+
+// ----------------------------------------
+// 1. LEXICAL ANALYSIS (Lexer)
+// ----------------------------------------
+
+class Token {
+    fn init(type, value, line) {
+        this.type = type
+        this.value = value
+        this.line = line
+    }
+    fn toString() {
+        return "Token(" + this.type + ", \"" + this.value + "\")"
+    }
+}
+
+class Lexer {
+    fn init(source) {
+        this.source = source
+        this.pos = 0
+        this.line = 1
+        this.length = len(source)
+        this.currentChar = ""
+        if this.length > 0 { this.currentChar = string_char_at(this.source, 0) }
+    }
+
+    fn advance() {
+        this.pos = this.pos + 1
+        if this.pos < this.length { this.currentChar = string_char_at(this.source, this.pos) } 
+        else { this.currentChar = "" }
+    }
+
+    fn skipWhitespace() {
+        while this.currentChar != "" and char_is_space(this.currentChar) {
+            if this.currentChar == "\n" { this.line = this.line + 1 }
+            this.advance()
+        }
+    }
+
+    fn tokenize() {
+        var tokens = []
+        while this.currentChar != "" {
+            if char_is_space(this.currentChar) {
+                this.skipWhitespace()
+            } else if char_is_alpha(this.currentChar) {
+                var startPos = this.pos
+                while this.currentChar != "" and (char_is_alpha(this.currentChar) or char_is_digit(this.currentChar)) {
+                    this.advance()
+                }
+                var value = string_substring(this.source, startPos, this.pos - startPos)
+                var type = "IDENTIFIER"
+                if value == "var" { type = "VAR" }
+                if value == "print" { type = "PRINT" }
+                if value == "fn" { type = "FN" }
+                if value == "class" { type = "CLASS" }
+                if value == "return" { type = "RETURN" }
+                if value == "if" { type = "IF" }
+                if value == "else" { type = "ELSE" }
+                
+                var t = Token()
+                t.init(type, value, this.line)
+                array_push(tokens, t)
+            } else if char_is_digit(this.currentChar) {
+                var startPos = this.pos
+                while this.currentChar != "" and char_is_digit(this.currentChar) { this.advance() }
+                var value = string_substring(this.source, startPos, this.pos - startPos)
+                var t = Token()
+                t.init("NUMBER", value, this.line)
+                array_push(tokens, t)
+            } else if this.currentChar == "=" {
+                this.advance()
+                var t = Token()
+                if this.currentChar == "=" { 
+                    t.init("EQ", "==", this.line)
+                    this.advance() 
+                } 
+                else { t.init("EQUALS", "=", this.line) }
+                array_push(tokens, t)
+            } else if this.currentChar == "\"" {
+                this.advance()
+                var startPos = this.pos
+                while this.currentChar != "" and this.currentChar != "\"" { this.advance() }
+                var value = string_substring(this.source, startPos, this.pos - startPos)
+                var t = Token()
+                t.init("STRING", value, this.line)
+                array_push(tokens, t)
+                this.advance()
+            } else {
+                var c = this.currentChar
+                var t_type = "UNKNOWN"
+                if c == "+" { t_type = "PLUS" }
+                if c == "-" { t_type = "MINUS" }
+                if c == "*" { t_type = "MUL" }
+                if c == "/" { t_type = "DIV" }
+                if c == "(" { t_type = "LPAREN" }
+                if c == ")" { t_type = "RPAREN" }
+                if c == "{" { t_type = "LBRACE" }
+                if c == "}" { t_type = "RBRACE" }
+                if c == "[" { t_type = "LBRACKET" }
+                if c == "]" { t_type = "RBRACKET" }
+                
+                if t_type != "UNKNOWN" {
+                    var t = Token()
+                    t.init(t_type, c, this.line)
+                    array_push(tokens, t)
+                }
+                this.advance()
+            }
+        }
+        var eof = Token()
+        eof.init("EOF", "", this.line)
+        array_push(tokens, eof)
+        return tokens
+    }
+}
+
+// ----------------------------------------
+// 2. SYNTAX ANALYSIS (Parser)
+// ----------------------------------------
+
+class ASTNode {
+    fn init(type) {
+        this.type = type
+    }
+    
+    fn toString() {
+        if this.type == "Literal" { return "Literal(" + this.value + ")" }
+        if this.type == "Identifier" { return "Identifier(" + this.name + ")" }
+        if this.type == "Binary" { return "Binary(" + this.op + " " + this.left.toString() + ", " + this.right.toString() + ")" }
+        if this.type == "VarDecl" { return "VarDecl(" + this.name + " = " + this.expr.toString() + ")" }
+        if this.type == "Print" { return "Print(" + this.expr.toString() + ")" }
+        return "UnknownNode"
+    }
+}
+
+class Parser {
+    fn init(tokens) {
+        this.tokens = tokens
+        this.pos = 0
+        this.length = len(tokens)
+    }
+
+    fn peek() {
+        if this.pos < this.length { return this.tokens[this.pos] }
+        return this.tokens[this.length - 1]
+    }
+
+    fn advance() {
+        if this.pos < this.length { this.pos = this.pos + 1 }
+        return this.tokens[this.pos - 1]
+    }
+
+    fn match(type) {
+        var t = this.peek()
+        if t.type == type {
+            this.advance()
+            return true
+        }
+        return false
+    }
+
+    fn consume(type, message) {
+        var t = this.peek()
+        if t.type == type { return this.advance() }
+        print("Parser Error: " + message)
+        return t
+    }
+
+    fn parsePrimary() {
+        var t = this.advance()
+        var node = ASTNode()
+        
+        if t.type == "NUMBER" or t.type == "STRING" {
+            node.init("Literal")
+            node.value = t.value
+            return node
+        }
+        if t.type == "IDENTIFIER" {
+            node.init("Identifier")
+            node.name = t.value
+            return node
+        }
+        if t.type == "LPAREN" {
+            var expr = this.parseExpression()
+            this.consume("RPAREN", "Expected ')'")
+            return expr
+        }
+        
+        node.init("Unknown")
+        return node
+    }
+
+    fn parseMultiplicative() {
+        var left = this.parsePrimary()
+        while this.match("MUL") or this.match("DIV") {
+            var opToken = this.tokens[this.pos - 1]
+            var right = this.parsePrimary()
+            var node = ASTNode()
+            node.init("Binary")
+            node.left = left
+            node.right = right
+            node.op = opToken.value
+            left = node
+        }
+        return left
+    }
+
+    fn parseAdditive() {
+        var left = this.parseMultiplicative()
+        while this.match("PLUS") or this.match("MINUS") {
+            var opToken = this.tokens[this.pos - 1]
+            var right = this.parseMultiplicative()
+            var node = ASTNode()
+            node.init("Binary")
+            node.left = left
+            node.right = right
+            node.op = opToken.value
+            left = node
+        }
+        return left
+    }
+
+    fn parseExpression() {
+        return this.parseAdditive()
+    }
+
+    fn parseStatement() {
+        if this.match("VAR") {
+            var nameToken = this.consume("IDENTIFIER", "Expected variable name.")
+            this.consume("EQUALS", "Expected '='")
+            var expr = this.parseExpression()
+            var node = ASTNode()
+            node.init("VarDecl")
+            node.name = nameToken.value
+            node.expr = expr
+            return node
+        }
+        
+        if this.match("PRINT") {
+            this.consume("LPAREN", "Expected '('")
+            var expr = this.parseExpression()
+            this.consume("RPAREN", "Expected ')'")
+            var node = ASTNode()
+            node.init("Print")
+            node.expr = expr
+            return node
+        }
+        
+        return this.parseExpression()
+    }
+
+    fn parse() {
+        var statements = []
+        while this.peek().type != "EOF" {
+            var stmt = this.parseStatement()
+            array_push(statements, stmt)
+        }
+        return statements
+    }
+}
+
+// ----------------------------------------
+// 3. CODE GENERATION (AOT Assembly Compiler)
+// ----------------------------------------
+
+class AOTCompiler {
+    fn init() {
+        this.asm = ""
+        this.vars = []
+    }
+
+    fn emit(line) {
+        this.asm = this.asm + "    " + line + "\n"
+    }
+
+    fn compileNode(node) {
+        if node.type == "Literal" {
+            this.emit("movq $" + node.value + ", %rax")
+            this.emit("pushq %rax")
+        } else if node.type == "Identifier" {
+            this.emit("movq var_" + node.name + "(%rip), %rax")
+            this.emit("pushq %rax")
+        } else if node.type == "Binary" {
+            this.compileNode(node.left)
+            this.compileNode(node.right)
+            
+            this.emit("popq %rbx") // Right operand
+            this.emit("popq %rax") // Left operand
+            
+            if node.op == "+" { this.emit("addq %rbx, %rax") }
+            else if node.op == "-" { this.emit("subq %rbx, %rax") }
+            else if node.op == "*" { this.emit("imulq %rbx, %rax") }
+            else if node.op == "/" { 
+                this.emit("cqto") 
+                this.emit("idivq %rbx") 
+            }
+            this.emit("pushq %rax")
+        } else if node.type == "VarDecl" {
+            this.compileNode(node.expr)
+            array_push(this.vars, node.name)
+            this.emit("popq %rax")
+            this.emit("movq %rax, var_" + node.name + "(%rip)")
+        } else if node.type == "Print" {
+            this.compileNode(node.expr)
+            this.emit("popq %rdx") // Printf value arg
+            this.emit("leaq format_num(%rip), %rcx") // Printf format string arg
+            this.emit("subq $32, %rsp") // Windows x64 ABI shadow space + alignment
+            this.emit("call printf")
+            this.emit("addq $32, %rsp")
+        }
+    }
+
+    fn compileAST(ast) {
+        var header = "    .global main\n    .extern printf\n\n    .data\nformat_num:\n    .asciz \"%d\\n\"\n"
+        this.asm = this.asm + header
+        
+        var i = 0
+        while i < len(ast) {
+            var node = ast[i]
+            if node.type == "VarDecl" {
+                this.asm = this.asm + "var_" + node.name + ":\n    .quad 0\n"
+            }
+            i = i + 1
+        }
+        
+        this.asm = this.asm + "\n    .text\nmain:\n"
+        this.emit("pushq %rbp")
+        this.emit("movq %rsp, %rbp")
+        
+        var j = 0
+        while j < len(ast) {
+            this.compileNode(ast[j])
+            j = j + 1
+        }
+        
+        this.emit("movq $0, %rax")
+        this.emit("popq %rbp")
+        this.emit("ret")
+        
+        return this.asm
+    }
+}
+
+// ----------------------------------------
+// 4. EXECUTE AOT NATIVE COMPILER
+// ----------------------------------------
+
+var source_code = file_read("test.aura")
+
+print("Compiling File: test.aura")
+print("----------------------------------------")
+print(source_code)
+print("----------------------------------------")
+
+// Step 1: Lexical Analysis
+var lexer = Lexer()
+lexer.init(source_code)
+var tokens = lexer.tokenize()
+
+// Step 2: Syntax Analysis
+var parser = Parser()
+parser.init(tokens)
+var ast = parser.parse()
+
+// Step 3: Native Assembly Generation
+var compiler = AOTCompiler()
+compiler.init()
+var asm_code = compiler.compileAST(ast)
+
+// Write to output.s
+file_write("output.s", asm_code)
+
+print("SUCCESS: Native Assembly written to output.s")
+print("========================================")
+print("  Bootstrapping Phase 5 Complete!       ")
+print("========================================")

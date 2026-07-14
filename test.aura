@@ -1,36 +1,4 @@
-/*
-   ==================================================
-   Aura Programming Language Phase 4 Integration Test
-   Testing:
-   - C-style multi-line comments
-   - Implicit String coercion (string + numbers/booleans)
-   - Function parameter execution and return values
-   ==================================================
-*/
-
-// Single line comment
-fn add(a, b) {
-    return a + b
-}
-
-fn main() {
-    print("=== Aura Phase 4 Test ===")
-    
-    // Testing math functions
-    var sum = add(20, 30)
-    print("Sum of 20 and 30:")
-    print(sum)
-    
-    // Testing implicit String Coercion (String + int + double + bool)
-    var name = "Aura Engine"
-    var version = 1.0
-    var isStable = true
-    
-    // Implicitly adding strings, float and booleans together!
-    var details = name + " v" + version + " (Stable: " + isStable + ")"
-    print(details)
-    
-    var score = 88.5
-    var msg = "Your score is " + score + " points."
-    print(msg)
-}
+var a = 50
+var b = 100
+var c = a * b + 25
+print(c)
