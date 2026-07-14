@@ -1,5 +1,0 @@
-fn main() {
-    print("Hello from Native Aura Strings!");
-    print("This is running in pure x86-64 assembly.");
-    return 0;
-}
